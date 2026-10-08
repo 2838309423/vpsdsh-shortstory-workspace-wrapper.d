@@ -16,11 +16,16 @@
 | 一次性问答（不开浏览器） | `cd ~/vpsdsh-shortstory-workspace-wrapper.d && dsh headless "写第 12 集开头 300 字"` |
 | 文本服务探活 | `bash bin/probe-text-service.sh` |
 | 服务状态 | `bash bin/web.sh status` |
-| 写小说的地方 | `novels/<slug>/`（一部小说一个独立仓；《极简修仙传》已软链为 `novels/jijian-xiuxian-zhuan`） |
+| 写小说的地方 | `novels/<slug>/`（**从零开始**：一部小说一个独立仓；不接任何旧项目，见 §四 与 `AGENTS.md` §2） |
 
 打开浏览器那一步的实测时序（服务器侧 curl 复现）：
 `GET /?token=…` ⇒ **303** + `Set-Cookie: dsh-auth-…` ⇒ 带 cookie `GET /` ⇒ **200 / 34846 B**（DSH SPA，含 `window.__DSH_BOOT__` 壳）。
 没令牌时一律 **401 `dsh web authentication required`**。
+
+⚠ **旧小说项目一律不接**（甲方 2026-10-08 口径）：《极简修仙传》
+（`/home/longxia/shortstory-workshop.d/shortstory.jijian-xiuxian-zhuan.shortstory.d`）**是失败的案例、将被遗弃**
+⇒ 本工作区**不接、不引用、不搬动、不修改**；仓里没有指向它的软链/子模块，原先把它软链进来的 `bin/link-novels.sh` **已删除**。
+本工作区第一次写小说就是**从零新建** `novels/<slug>/`。
 
 ## 二、装了什么（实测读数）
 
@@ -84,9 +89,8 @@ https://api.deepseek.com     ← 服务器上的文本服务（1M 上下文）
 | `bin/web-run.sh` / `bin/proxy-run.sh` | 两个 tmux 会话的前台运行体 |
 | `bin/ts-proxy.py` | Tailscale 门面（纯标准库 TCP 转发，绑不上就报错退出，不静默降级） |
 | `bin/probe-text-service.sh` | 文本服务探活（**不打印密钥**） |
-| `bin/link-novels.sh` | 把既有 `*.shortstory.d` 小说仓软链进 `novels/` |
 | `bin/install-cron.sh` | `install\|verify\|uninstall` 开机自启 + 2 分钟看门狗 |
-| `novels/` | 小说落点（一部一仓，各自独立；本仓 `.gitignore` 排除正文） |
+| `novels/` | 小说落点（**从零新建**，一部一仓；本仓 `.gitignore` 排除正文） |
 | `docs/` | 本件与后续排障记录 |
 
 ## 五、踩过的坑（都留了机制）

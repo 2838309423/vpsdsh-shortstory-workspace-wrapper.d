@@ -17,11 +17,11 @@
 - 端点：`https://api.deepseek.com`（Anthropic 兼容路径 `/anthropic`）；模型 `deepseek-flash`（DeepSeek-V4.1-Flash）。
 - 实测读数：`/v1/models` 列出 `deepseek-flash`（context_window 1048576，max_output_tokens 393216，支持 text+image）；
   `POST /anthropic/v1/messages` 200 且正文含 `thinking` 块。
-- 密钥：只落 `~/.dsh/.env` 的 `DEEPSEEK_API_KEY`（600），另有历史副本 `~/.deepseek-v4-flash.bashrc`。
-  **任何仓、任何件里都不写密钥原文**。
+- 密钥：只落 `~/.dsh/.credentials.yaml` 的 `refs.DEEPSEEK_API_KEY`（600；也支持起 DSH 前 `export DEEPSEEK_API_KEY=…`）。
+  服务器上的历史副本在 `~/.deepseek-v4-flash.bashrc`。**任何仓、任何件里都不写密钥原文。**
 - 路由声明在 `~/.dsh/profiles/vps/cordis.patch.yml`（本仓 `profile/cordis.patch.yml` 是权威副本）。
 
-## 2 写小说的约定（与《极简修仙传》工坊同一套骨架）
+## 2 写小说的约定（本工作区自有的骨架）
 
 一部小说 = `novels/<slug>/` 下的独立仓，目录骨架：
 
@@ -36,13 +36,17 @@
 | `tasks/` | 任务规约 |
 | `FREEZE.md` | 冻结声明：已冻结内容的 md5 清单 + 复现命令 |
 
-三条硬口径（沿用既有项目，别自创）：
+三条硬口径（本工作区自定，别自创）：
 1. **一份真值三个投影**：正文末行 = `state/epNN.json` = `bible/characters.json`（as_of 那集），机检逐字段对账。
 2. **数字失真红线**：`raw_*` ≥ 2^53−1 一律十进制字符串（JS Number 会失真）。
 3. **改动已冻结内容**：必须让 `qc/freeze.sh` 的 diff 显式进 commit，不许静默改。
 
-既有小说（claude 团队线，**本工作区不搬动它**）：`/home/longxia/shortstory-workshop.d/shortstory.jijian-xiuxian-zhuan.shortstory.d`
-（《极简修仙传》）。要在这里读/写它，先跑 `bash bin/link-novels.sh` 建软链 `novels/jijian-xiuxian-zhuan`。
+### 旧项目一律不接（甲方 2026-10-08 口径）
+
+- **《极简修仙传》（`~/shortstory-workshop.d/shortstory.jijian-xiuxian-zhuan.shortstory.d`）是失败的案例，将被遗弃**
+  ⇒ 本工作区**不接进来、不引用、不搬动、不修改**；它的目录仍在原处，由甲方另行处置，这里一律绕开。
+- 本工作区里**没有**任何指向旧项目的软链、子模块或脚本（`bin/link-novels.sh` 已删）。
+- 新小说一律在 `novels/<slug>/` 从零新建独立仓。
 
 ## 3 交付与 git 口径（甲方 2026-10-04 立规，别再问）
 

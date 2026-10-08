@@ -18,8 +18,8 @@
 |---|---|
 | `AGENTS.md` | **工作区级长期记忆**：DSH 每个会话都会注入，写小说前先读它 |
 | `profile/` | DSH profile 层（`cordis.patch.yml` = 模型路由与权限；`AGENTS.md` = 全局记忆副本） |
-| `bin/` | 启停/探活/落地脚本（`web.sh`、`apply-profile.sh`、`probe-text-service.sh`、`link-novels.sh`） |
-| `novels/` | 小说正文落点：**一部小说一个目录**（各自独立仓；既有《极简修仙传》用软链接进来） |
+| `bin/` | 启停/探活/落地脚本（`web.sh`、`apply-profile.sh`、`probe-text-service.sh`） |
+| `novels/` | 小说正文落点：**一部小说一个目录、各自独立仓**；本仓从空白开始，不接任何旧项目 |
 | `docs/` | 落地记录、排障与验收读数 |
 | `state/` | 运行时（日志/pid），**不入库** |
 

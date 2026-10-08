@@ -22,7 +22,9 @@
   既有 `tailscale serve` 把 `https://…ts.net/` 反代到 `127.0.0.1:18789`（**别动那条**）。
 - **两条既有线，勿混**：
   1. **claude 团队线**：`~/hello-world.d`、`~/claudes-workflow-runtime.d`、`~/shortstory-workshop.d`
-     （《极简修仙传》工坊，`VIBE_HOME=~/.vibe-shortstory`，tmux socket `vibe`/`vibe-shortstory`，systemd unit `vibe-*`）。
+     （`VIBE_HOME=~/.vibe-shortstory`，tmux socket `vibe`/`vibe-shortstory`，systemd unit `vibe-*`）。
+     ⚠ 其中的旧小说项目《极简修仙传》**是失败的案例、将被遗弃**（甲方 2026-10-08 口径）⇒
+     本 DSH 线**不接、不引用、不改动**它。
   2. **本 DSH 线**：`~/vpsdsh-shortstory-workspace-wrapper.d`（本文件所在实例，tmux socket `dsh-vps`）。
   两线**不共用**家目录、钩子、socket、unit。
 
