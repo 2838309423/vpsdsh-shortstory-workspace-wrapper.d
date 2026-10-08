@@ -1,0 +1,23 @@
+# DSH profile「vps」的用户 patch 层（权威副本；落地到 $DSH_HOME/profiles/vps/cordis.patch.yml）
+#
+# 这个文件就是「服务器上的文本服务 → DSH」的接线处：
+#   deepseek-official 路由由 @deepseek-ai/dsh-llm-deepseek 提供，密钥走凭据服务
+#   （$DSH_HOME/.credentials.yaml 的 refs.DEEPSEEK_API_KEY，见 bin/apply-profile.sh）。
+# 实测（2026-10-08，DSH 0.2.0-rc.2）：
+#   - 无密钥时报 `MISSING_CREDENTIAL: llm-deepseek: no API key for provider route "deepseek-official"`；
+#   - 存好密钥后 `dsh headless "…"` 返回真实模型答案（模型自报 deepseek-flash）。
+# 改这里不需要重启内核？—— 本文件是**用户 patch 层**，DSH 启动时组合；改完重启 `bin/web.sh restart` 最稳。
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    # 服务器上的 DeepSeek 文本服务：官方 API + 服务器已有密钥，模型 DeepSeek-V4.1-Flash（1M ctx）
+    provider: deepseek-official
+    model: deepseek-flash
+    reasoningEffort: high
+# 写小说是长跑会话（一章一节地攒上下文）：把自动压缩的触发点从默认 ~0.68M token 降到 0.35，
+# 压缩后保留最近 ~6% 原文。口径与甲方桌面端一致（见 profiles README）。
+- id: compaction-basic
+  name: "@deepseek-ai/dsh-compaction-basic"
+  config:
+    thresholdRatio: 0.35
+    retainRatio: 0.06
