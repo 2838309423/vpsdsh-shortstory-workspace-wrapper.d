@@ -1,12 +1,15 @@
 {
   "name": "dsh-profile-vps",
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "@local/dsh-statusline.d": "link:/home/longxia/dsh-statusline.d"
+  },
   "dsh": {
     "profile": {
       "bundles": [
         "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app"
+        "@deepseek-ai/dsh-web-app",
+        "@local/dsh-statusline.d"
       ]
     }
   }

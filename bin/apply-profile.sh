@@ -7,8 +7,10 @@
 #
 # 落地的东西：
 #   1) $DSH_HOME/profiles/vps/            ← package.json（插件/束注册表）+ cordis.patch.yml（模型路由）
-#   2) $DSH_HOME/AGENTS.md                ← profile/AGENTS.md（服务器侧全局长期记忆；已存在则不覆盖）
-#   3) $DSH_HOME/.credentials.yaml        ← 只在缺失时创建空骨架（**密钥由人填，脚本不写密钥**）
+#   2) $DSH_HOME/profiles/vps/node_modules/@local/dsh-statusline.d ← 软链到本地插件仓
+#      （bundle 的实际解析走 Node 的 node_modules 查找；package.json 里的 `link:` 只是登记）
+#   3) $DSH_HOME/AGENTS.md                ← profile/AGENTS.md（服务器侧全局长期记忆；已存在则不覆盖）
+#   4) $DSH_HOME/.credentials.yaml        ← 只在缺失时创建空骨架（**密钥由人填，脚本不写密钥**）
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=env.sh
@@ -47,11 +49,34 @@ else
   cp -f "$ROOT/profile/package.json" "$PDIR/package.json"
 fi
 
-# 3) 用户 patch 层：仓库权威副本覆盖（先备份）
+# 3) 本地插件束的 node_modules 软链（幂等）
+#    DSH 找 `dsh.profile.bundles` 里的包名时走 Node 的 node_modules 解析（createRequire 的
+#    resolve.paths），package.json 里的 `link:` 依赖只是登记 —— 少了这条软链，启动会报
+#    `cannot resolve profile bundle "@local/dsh-statusline.d"`。插件仓不进 profiles 目录，
+#    所以要在这里保证链子在。
+#    插件源的更新：cd "$HOME/dsh-statusline.d" && git pull（改 client.js 有 HMR；改 index.js 见仓内 HANDOFF）。
+link_local_bundle() {
+  local pkg="$1" target="$2"
+  if [ ! -d "$target" ]; then
+    echo "[apply] 警告：本地插件仓不存在，跳过 node_modules 链：$target"
+    return 0
+  fi
+  mkdir -p "$PDIR/node_modules/$(dirname "$pkg")"
+  if [ -L "$PDIR/node_modules/$pkg" ] && [ "$(readlink "$PDIR/node_modules/$pkg")" = "$target" ]; then
+    echo "[apply] 链已在：node_modules/$pkg -> $target"
+  else
+    rm -rf "$PDIR/node_modules/$pkg"
+    ln -s "$target" "$PDIR/node_modules/$pkg"
+    echo "[apply] 建链：node_modules/$pkg -> $target"
+  fi
+}
+link_local_bundle "@local/dsh-statusline.d" "$HOME/dsh-statusline.d"
+
+# 4) 用户 patch 层：仓库权威副本覆盖（先备份）
 [ -f "$PDIR/cordis.patch.yml" ] && cp -f "$PDIR/cordis.patch.yml" "$PDIR/cordis.patch.yml.bak-$(date +%s)"
 cp -f "$ROOT/profile/cordis.patch.yml" "$PDIR/cordis.patch.yml"
 
-# 4) 全局长期记忆
+# 5) 全局长期记忆
 if [ "$FORCE" = "1" ] || [ ! -f "$DSH_HOME/AGENTS.md" ]; then
   cp -f "$ROOT/profile/AGENTS.md" "$DSH_HOME/AGENTS.md"
   echo "[apply] 装了 $DSH_HOME/AGENTS.md"
@@ -59,7 +84,7 @@ else
   echo "[apply] 已有 $DSH_HOME/AGENTS.md，跳过（要覆盖加 --force）"
 fi
 
-# 5) 凭据骨架：只建不覆盖，也从不在日志里打印密钥
+# 6) 凭据骨架：只建不覆盖，也从不在日志里打印密钥
 if [ ! -f "$DSH_HOME/.credentials.yaml" ]; then
   umask 077
   cat > "$DSH_HOME/.credentials.yaml" <<'EOF'
