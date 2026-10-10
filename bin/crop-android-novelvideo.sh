@@ -12,6 +12,13 @@
 #   RECT      crop 模式必填，格式 宽:高:X:Y（X/Y 为左上角坐标）
 #   JOBS      并行编码条数（默认 4）
 #   FFMPEG/FFPROBE  默认用 $HOME 自装静态版
+# 矩形（RECT=W:H:X:Y，源 1080x2400 的左上角 x=50,y=224）：
+#   980:1408:50:224  —— 2026-10-10 第一批 S01~S30 用的（**切掉了右下角百分数**）
+#   980:1486:50:224  —— 2026-10-10 续录 S31~S58 起的口径：下沿 1632→1710，
+#                       把「电量/时间 + 翻页进度百分数」浮层（实测 y 1652~1681）整个框进来。
+#                       正文最深 1610、奶油页 105~1715、分屏灰条 1718 起，故 1710 两头都安全。
+#   注：取页/OCR 侧现在直接用 `--crop 980:1408:50:224 --out-crop 980:1486:50:224`
+#       在 ffmpeg 里现裁，不必先落 28 个裁剪 mp4（tools/stable_pages2.py）。
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,8 +26,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FFMPEG="${FFMPEG:-$HOME/toolchain/ffmpeg/ffmpeg-7.0.2-amd64-static/ffmpeg}"
 FFPROBE="${FFPROBE:-$HOME/toolchain/ffmpeg/ffmpeg-7.0.2-amd64-static/ffprobe}"
 
-SRC_DIR="${SRC_DIR:-/data/home/shortstory/长安二十四时辰/non-cuttedvideo-from-androidphone.d}"
-OUT_DIR="${OUT_DIR:-/data/home/shortstory/长安二十四时辰/hasbeen-cut-video-from-androidphone.d}"
+SRC_DIR="${SRC_DIR:-/data/home/shortstory/长安十二时辰/non-cuttedvideo-from-androidphone.d}"
+OUT_DIR="${OUT_DIR:-/data/home/shortstory/长安十二时辰/hasbeen-cut-video-from-androidphone.d}"
 WORK_DIR="${WORK_DIR:-$REPO_ROOT/state/video-crop}"
 RECT="${RECT:-}"
 

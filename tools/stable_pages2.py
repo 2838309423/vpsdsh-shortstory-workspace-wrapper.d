@@ -15,7 +15,13 @@
 
 用法（以能读源视频的身份跑）：
   python3 stable_pages2.py --video X.mp4 --outdir DIR [--crop W:H:X:Y]
+      [--out-crop W:H:X:Y]   # 判稳用 --crop，存代表帧用 --out-crop（缺省同 --crop）
       [--fps 10] [--vth 1.2] [--min-sec 1.2] [--scale 0] [--save-frames]
+
+--out-crop 的来历（2026-10-10）：全屏录屏 1080x2400 里阅读器正文区是
+crop=980:1408:50:224，但右下角「翻页进度百分数」在 y≈1600~1690，只存 1408 高
+会把百分数切掉一半。判稳继续用 980x1408（与 S01~S30 那批取页结果保持一致），
+存档帧改成 980x1486（y 224~1710，含完整的「电量/时间 + 百分数」底栏）。
 """
 import argparse
 import os
@@ -48,8 +54,11 @@ def main():
     ap.add_argument("--video", required=True)
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--crop", default="")
+    ap.add_argument("--out-crop", default="", help="存代表帧用的 crop W:H:X:Y（缺省同 --crop）")
     ap.add_argument("--fps", type=float, default=10.0)
     ap.add_argument("--vth", type=float, default=1.2)
+    ap.add_argument("--bridge-th", type=float, default=0.5,
+                    help="成段判据（抗压缩噪声）；取帧仍取最长严格静止子段的中点")
     ap.add_argument("--min-sec", type=float, default=1.2)
     ap.add_argument("--scale", type=int, default=0)
     ap.add_argument("--quality", type=int, default=4)
@@ -58,7 +67,10 @@ def main():
     args = ap.parse_args()
 
     name = os.path.splitext(os.path.basename(args.video))[0]
-    crop = args.crop.replace(":", ",") if args.crop else ""
+    # 注意：crop 参数是 W:H:X:Y（冒号分隔），不能再把冒号换成逗号——
+    # 逗号在 filtergraph 里是「下一个滤镜」的分隔符（S01~S30 那批没传 --crop，
+    # 所以这个坑一直没踩到；2026-10-10 处理全屏录屏时暴露，已修）。
+    crop = args.crop
     vf = [f"fps={args.fps}"]
     if crop:
         vf.append(f"crop={crop}")
@@ -75,9 +87,11 @@ def main():
     df = open(args.dump_diff, "w") if args.dump_diff else None
     if df:
         df.write("idx\tt_s\t" + "\t".join(f"band{i}" for i in range(BANDS)) + "\tmaxband\n")
+    mx_of = [0.0] * n
     for k in range(1, n):
         bd = band_diffs(frames[k - 1], frames[k], SW, SH, BANDS)
         mx = max(bd)
+        mx_of[k] = mx
         flags[k] = mx < args.vth
         if df:
             df.write(f"{k}\t{k/args.fps:.2f}\t" +
@@ -85,9 +99,15 @@ def main():
     if df:
         df.close()
 
+    # —— 抗噪：单个压缩噪声帧会把一个静止窗口劈成两半，两半都短于 min_sec 就被整页丢掉
+    #    （2026-10-10 实测：s34 在 17.4~19.2s 的静止窗被 17.8s 那个 0.068 的噪声帧劈开，
+    #     两个子段 0.4s / 1.3s 都不达标 ⇒ 整页漏掉，正文出现约 100 字断口）。
+    #    办法：**成段判据放宽到 bridge_th**（噪声级 0.5），但**取帧时刻仍取最长"严格静止"
+    #    子段的中点**，保证代表帧不会落在翻页动画里（动画帧的 maxband 通常 3~30）。
+    usable = [mx_of[k] < args.bridge_th for k in range(n)]
     runs, s0 = [], None
     for k in range(n):
-        if flags[k]:
+        if usable[k]:
             if s0 is None:
                 s0 = k
         else:
@@ -98,21 +118,38 @@ def main():
         runs.append((s0, n - 1))
     allruns = runs
     runs = [(a, b) for a, b in allruns if (b - a + 1) / args.fps >= args.min_sec]
-    log(f"# {name}: 帧={n} 静止帧占比={sum(flags)/n:.1%} "
+
+    def pick_time(a, b):
+        """在 [a,b] 里挑最长严格静止子段的中点（没有就退回整段中点）。"""
+        best, s = (0, a, b), None
+        for k in range(a, b + 2):
+            ok = k <= b and flags[k]
+            if ok and s is None:
+                s = k
+            elif not ok and s is not None:
+                if k - s > best[0]:
+                    best = (k - s, s, k - 1)
+                s = None
+        _, pa, pb = best
+        return (pa + pb) / 2.0 / args.fps, (pb - pa + 1) / args.fps
+
+    log(f"# {name}: 帧={n} 严格静止帧占比={sum(flags)/n:.1%} "
+        f"抗噪可用帧占比={sum(usable)/n:.1%} "
         f"原始段={len(allruns)} 达标窗口={len(runs)} "
-        f"(min_sec={args.min_sec}, vth={args.vth})")
+        f"(min_sec={args.min_sec}, vth={args.vth}, bridge_th={args.bridge_th})")
 
     if args.save_frames:
         pdir = os.path.join(args.outdir, "pages")
         os.makedirs(pdir, exist_ok=True)
+        outcrop = args.out_crop or args.crop
         vfo = []
-        if crop:
-            vfo.append(f"crop={crop}")
+        if outcrop:
+            vfo.append(f"crop={outcrop}")
         if args.scale:
             vfo.append(f"scale={args.scale}:-2")
         rows = []
         for i, (a, b) in enumerate(runs):
-            mid = (a + b) / 2.0 / args.fps
+            mid, strict_dur = pick_time(a, b)
             out = os.path.join(pdir, f"{name}.p{i:03d}.jpg")
             cmd = [FF, "-v", "error", "-y", "-ss", f"{mid:.3f}", "-i", args.video,
                    "-frames:v", "1"]

@@ -18,6 +18,11 @@ import re
 import sys
 
 PLACE = re.compile(r"(?:⟨\?⟩|<\?>|〔\?〕)+")
+# 章节头里的阅读器 UI：七猫把「第七章 申正」渲成「第七章 申正02」（末尾两位是章内页码）
+# ⇒ 实测 2026-10-10：全量正文里唯一残留的数字就是这一处，按行剔除。
+RE_CHAPTER = re.compile(r"^(第[一二三四五六七八九十百零〇]+章\s*\S{0,8}?)\d+$", re.M)
+# 整行就是一个数字（页码类 UI）也丢掉
+RE_NUM_LINE = re.compile(r"^\s*\d{1,4}\s*$", re.M)
 
 
 def main():
@@ -40,6 +45,11 @@ def main():
     # 段内多余的空白/空段落整理
     out = re.sub(r"[ \t]+", "", out)
     out = re.sub(r"\n{3,}", "\n\n", out)
+    # 章节头尾随的阅读器页码数字（"第七章申正02" → "第七章申正"）
+    out, n_chap = RE_CHAPTER.subn(r"\1", out)
+    out, n_num = RE_NUM_LINE.subn("", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    print(f"# 章节头页码数字剔除 {n_chap} 处；纯数字行剔除 {n_num} 行")
     with open(args.out, "w") as f:
         f.write(out)
 
