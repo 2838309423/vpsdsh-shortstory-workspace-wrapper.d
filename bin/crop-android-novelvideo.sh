@@ -10,6 +10,7 @@
 #   OUT_DIR   输出目录
 #   WORK_DIR  取帧与元数据的落地目录（默认 state/video-crop）
 #   RECT      crop 模式必填，格式 宽:高:X:Y（X/Y 为左上角坐标）
+#   JOBS      并行编码条数（默认 4）
 #   FFMPEG/FFPROBE  默认用 $HOME 自装静态版
 set -uo pipefail
 
@@ -102,21 +103,24 @@ do_crop() {
 
   mkdir -p "$OUT_DIR" || die "无法创建 OUT_DIR: $OUT_DIR （需要写权限）"
 
-  echo "== RECT: ${W}:${H}:${X}:${Y}  ->  $OUT_DIR"
-  local v base out rc=0
-  for v in "${VIDEOS[@]}"; do
-    base="$(basename "$v" .mp4)"
-    out="$OUT_DIR/${base}.mp4"
+  local JOBS="${JOBS:-4}"
+  echo "== RECT: ${W}:${H}:${X}:${Y}  ->  $OUT_DIR  (并行 $JOBS)"
+  local rc=0
+  # 只取视频轨 + 可选音轨：手机录屏常带一条 codec=unknown 的 data 轨，
+  # 不显式 -map 会让 mp4 封装报 "Could not find tag for codec unknown"。
+  export FFMPEG OUT_DIR CROP="${W}:${H}:${X}:${Y}"
+  printf '%s\0' "${VIDEOS[@]}" | xargs -0 -P "$JOBS" -n1 bash -c '
+    v="$1"; base="$(basename "$v" .mp4)"; out="$OUT_DIR/${base}.mp4"
     if "$FFMPEG" -v error -y -i "$v" \
-         -vf "crop=${W}:${H}:${X}:${Y}" \
+         -map 0:v:0 -map 0:a? \
+         -vf "crop=$CROP" \
          -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p \
          -c:a copy -movflags +faststart \
          "$out"; then
       echo "   OK  $(basename "$out")  $(du -h "$out" | cut -f1)"
     else
-      echo "   FAIL $base" >&2; rc=1
-    fi
-  done
+      echo "   FAIL $base" >&2; exit 1
+    fi' _ || rc=1
 
   echo "== 输出:"
   ls -la "$OUT_DIR" 2>/dev/null | sed 's/^/   /'
