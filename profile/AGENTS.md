@@ -28,6 +28,25 @@
   2. **本 DSH 线**：`~/vpsdsh-shortstory-workspace-wrapper.d`（本文件所在实例，tmux socket `dsh-vps`）。
   两线**不共用**家目录、钩子、socket、unit。
 
+## 本机第二个账号 shortstory：怎么登、怎么干活（2026-10-10 甲方给私钥）
+
+- `shortstory` = uid 1001，家目录 **`/data/home/shortstory`**，`shortstory:shortstory` **0750**
+  ⇒ longxia **进不去**（无 r 无 x）；`sudo` 要密码（NOPASSWD 只有 `systemctl {status,start,stop,restart} longxia`、`openclaw`），
+  `usermod`/`setfacl`/`su` 一条都用不了。**唯一入口是甲方给的长期私钥。**
+- **登录命令**（本机回环，非交互必须带 `-o BatchMode=yes`，否则会卡在密码提示）：
+  `ssh -i /home/longxia/.ssh/shortstory_ed25519 -o BatchMode=yes shortstory@127.0.0.1 '<命令>'`
+  私钥 `/home/longxia/.ssh/shortstory_ed25519`（600，公钥注释 `shortstory-login-from-win10-dsh`）。
+  **私钥永不入仓、永不打印**，与 DEEPSEEK 密钥同等对待。
+- **干活方式：涉及 `/data/home/shortstory/**` 的一切（ffmpeg / 脚本）都必须以 shortstory 身份跑**，
+  因为 longxia 读不到它的文件：
+  1. longxia 的 `$HOME` 也是 0750，**shortstory 反过来也进不去** ⇒ 工具不能放 longxia 家目录。
+     把 ffmpeg 等可执行文件拷到两者都能读的地方再 `chmod -R a+rX`（本次用 `/tmp/vidtool/`，**易失**）。
+  2. 脚本同理；**脚本里的默认路径可能落在 longxia 家目录 ⇒ 会 Permission denied**，
+     必须显式用环境变量改到 shortstory 可写处（如 `WORK_DIR=/tmp/vidtool/work`，chmod 777）。
+  3. 产出物属主是 shortstory ⇒ **longxia 和 DSH GUI 都预览不了**，要看得先拷出来。
+  4. **只新增、别改**甲方数据的属主/权限/ACL。
+- ffmpeg：系统**没装**，已落静态版 `/home/longxia/toolchain/ffmpeg/ffmpeg-7.0.2-amd64-static/{ffmpeg,ffprobe}`。
+
 ## 本实例：DSH（DeepSeek Harness）——文本服务在服务器上（2026-10-08 落地）
 
 - Node：`/home/longxia/toolchain/node/bin/node` = **v24.21.0**（`$HOME` 自装；系统 `/usr/bin/node` 只有 v12.22.9，**别用**）。
