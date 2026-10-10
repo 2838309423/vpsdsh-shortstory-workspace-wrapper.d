@@ -71,6 +71,7 @@ link_local_bundle() {
   fi
 }
 link_local_bundle "@local/dsh-statusline.d" "$HOME/dsh-statusline.d"
+link_local_bundle "@local/dsh-copy-path.d" "$HOME/dsh-copy-path.d"
 
 # 4) 用户 patch 层：仓库权威副本覆盖（先备份）
 [ -f "$PDIR/cordis.patch.yml" ] && cp -f "$PDIR/cordis.patch.yml" "$PDIR/cordis.patch.yml.bak-$(date +%s)"
