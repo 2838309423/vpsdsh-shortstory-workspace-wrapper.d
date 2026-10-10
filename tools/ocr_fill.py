@@ -62,22 +62,30 @@ def main():
     ap.add_argument("--timeout", type=float, default=180)
     ap.add_argument("--resize", type=int, default=0)
     ap.add_argument("--new-first", action="store_true",
-                    help="文件名含 142457 的新录批次优先")
+                    help="最近取帧的段优先（按段目录 mtime 倒序）")
+    ap.add_argument("--new-mark", default="",
+                    help="显式指定新批次文件名标记（如 171536），给了就按它优先")
     ap.add_argument("--seg", action="append", default=[],
                     help="只处理这些段（可重复；用段名后缀匹配，如 s32）")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     prompt = open(args.prompt).read() if args.prompt else ocr_pages.DEFAULT_PROMPT
-    key, url = ocr_pages.load_key()
+    if args.dry_run:
+        key = url = None          # dry-run 只读盘、不调 API，连密钥都不需要
+    else:
+        key, url = ocr_pages.load_key()
     tmpdir = "/tmp/ca24/work/resized"
     os.makedirs(tmpdir, exist_ok=True)
 
     dirs = [d for d in sorted(glob.glob(os.path.join(args.frames_root, "*")))
             if os.path.isdir(d) and os.path.exists(os.path.join(d, "pages.tsv"))]
-    if args.new_first:
-        dirs.sort(key=lambda d: (0 if "142457" in os.path.basename(d) else 1,
+    if args.new_mark:
+        dirs.sort(key=lambda d: (0 if args.new_mark in os.path.basename(d) else 1,
                                  os.path.basename(d)))
+    elif args.new_first:
+        # 按段目录 mtime 倒序：刚取完帧的新批次自然排在最前（不写死批次时间戳）
+        dirs.sort(key=lambda d: -os.path.getmtime(d))
     if args.seg:
         dirs = [d for d in dirs
                 if any(os.path.basename(d).endswith(s) or s in os.path.basename(d)
