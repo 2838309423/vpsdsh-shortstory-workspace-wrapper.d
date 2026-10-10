@@ -39,11 +39,17 @@ def norm_map(s):
 
 # 阅读器自己的 UI 尾巴（章末"本章说 / 去写章评"），不是正文
 UI_TAIL = re.compile(r"\s*本章说\s*去写章评\s*>?\s*$")
+# 阅读器自己的**整行** UI（不是正文）：章末按钮、以及「数据加载失败，请点击重试」这类错误页。
+# 2026-10-10 深夜实测：S76 最后一页（p057）就是错误页，旧逻辑只削「本章说」尾巴，
+# 会把「数据加载失败，请点击重试 / 点击重试」当正文拼进书末 ⇒ 这里按整行剔除。
+UI_LINE = re.compile(
+    r"^\s*(?:本章说|去写章评|>|数据加载失败[，,]?\s*请?点击?重试|点击重试|重新加载|加载失败)\s*$")
 
 
 def strip_ui(text):
     """去掉正文尾部的阅读器 UI 文字；返回 (正文, 是否整页都是 UI)。"""
     t = UI_TAIL.sub("", text).strip()
+    t = "\n".join(ln for ln in t.split("\n") if not UI_LINE.match(ln)).strip()
     if not t or len(re.sub(r"[\s本章说去写章评>·、,，。.!！?？]+", "", t)) == 0:
         return "", True
     return t, False
