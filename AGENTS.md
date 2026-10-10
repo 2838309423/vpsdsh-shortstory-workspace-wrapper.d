@@ -65,3 +65,34 @@
 - 入口 URL 带令牌且**每次启动都换**：`bash bin/web.sh url` 取（`state/url.txt`，600，不入库）。
 - 不与 `~/shortstory-workshop.d`（claude 团队线，`VIBE_HOME=~/.vibe-shortstory`）共用任何家目录或钩子。
 - 本工作区自己的运行时状态落 `state/`（日志、pid、url.txt），不入库。
+
+## 5 录屏 → 小说正文（阿里云百炼视觉 OCR）——2026-10-10 落地
+
+甲方给的《长安二十四时辰》七猫录屏（安卓 Autox.js 自动翻页录的），要提取正文。
+**方案与实测见 `novels/chang-an-24/录屏提正文-方案与实测.md`**（含成本、命令、坑），这里只记长期事实：
+
+- **源视频**：`/data/home/shortstory/长安二十四时辰/hasbeen-cut-video-from-androidphone.d/*.mp4`
+  （980×1408 正文容器，30 段、每段 ~144 s、~29 fps VFR）；原始整屏版在同级 `non-cuttedvideo-from-androidphone.d/`（1080×2400）。
+  **longxia 读不到 `/data/home/shortstory`**，一切 `ffmpeg/取帧` 必须以 shortstory 身份跑（私钥登录见全局记忆）。
+- **翻页机制**：七猫是**左右滑动翻页**，动画 ~0.4 s 内屏幕上同时有两页 ⇒ 判"稳定页"必须
+  **逐条带**检查（水平也不动），只判整屏像素差会踩中动画帧。工具 `tools/stable_pages2.py`
+  （`--vth 0.05 --min-sec 1.5 --fps 10`，实测静止帧 ~80%、每段稳定页 49~63 个）。
+- **视觉 OCR 端点（甲方 workspace 专属）**：`https://ws-ip710u7i2cpsugfs.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`
+  （OpenAI 兼容；**没有** `qwen-vl-flash` 这个 ID，用 **`qwen3-vl-flash`**；另有 `qwen-vl-ocr-latest`、`qwen-vl-max`）。
+  密钥同 `~/.config/aliyun-bailian/api-key.txt`（600）⇒ 给 shortstory 用时拷到 `/tmp/ca24/bailian.key`，**跑完删**。
+- **成本量级**：原图 980×1408 一页 ≈1477 prompt tokens + ~79 输出；实测 1715 页 ＝ **0.5825 元**。
+  省钱别靠降分辨率（会错字），靠"只对稳定页调用一次"。
+- **工具落点**：`tools/stable_pages2.py`（取稳定页帧）、`tools/ocr_pages.py`（批量 OCR）、
+  `tools/stitch.py`（相邻页去重拼接）、`tools/clean_corpus.py`（占位符清理）、
+  `tools/qa_corpus.py`（机检）、`tools/make_manifest.py`（页清单）、
+  `tools/fix_page.py`（被审核拦下的页做半页补漏）、`tools/run_all.sh`（30 段一把梭）。
+  中间产物在 `/tmp/ca24/{out,work}`（**易失**）；正文与 QA 已拷进
+  `novels/chang-an-24/corpus/`（`novels/*` 在 `.gitignore` 里 ⇒ 正文**不入库**，版权原因）。
+- **拼接事实（实测 1715 页）**：相邻稳定页只重叠 0~2 字（每翻一页屏幕前进约一屏、约 10 行），
+  用 `difflib` 最长匹配块 + slack≤3 定位；用编辑距离/固定容忍度**测不出**这种小重叠。
+  另外：**30 段里有 14 段的首页与上段末页整页重复**（录屏分段特性）⇒ 必须做整页去重；
+  章末 UI 页（"本章说/去写章评"）要丢。
+- **审核坑**：百炼会对**模型输出**做内容审核，涉敏感情节会整页 `data_inspection_failed`
+  （重试无用）；`tools/fix_page.py` 把页面上下切两半再提交可救回大部分，仍会缺 1 行左右。
+
+
