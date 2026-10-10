@@ -47,6 +47,25 @@
   4. **只新增、别改**甲方数据的属主/权限/ACL。
 - ffmpeg：系统**没装**，已落静态版 `/home/longxia/toolchain/ffmpeg/ffmpeg-7.0.2-amd64-static/{ffmpeg,ffprobe}`。
 
+### shortstory 也有了 claude —— 但只有 deepseek-flash 一条线（2026-10-10 落地）
+
+- 甲方口径（原话）：「**claude 是 shortstory 用户拿来蒸馏人物角色 和 写文 的**」，并明确**只配 deepseek-flash**。
+  ⇒ 只装了 ① claude 官方原生本体（2.1.285，与 longxia 同 md5）② deepseek 端点与密钥；
+  **没装** GLM 微代理 / 模型 toggle / longxia 的 `settings.json`（钩子+statusLine）/ `CLAUDE.md` / skills / plugins。
+- 装/体检/冒烟三个入口（都在本仓 `bin/`，幂等可重跑）：
+  `bin/install-claude-shortstory.sh`（`--check` 只体检）、`bin/smoke-claude-shortstory.sh`（末行 `__SELFTEST__ 8 0`）。
+- **shortstory 侧的 claude 本体独立自足**，不依赖 longxia 家目录（后者仍 0750 进不去）：
+  本体 `/data/home/shortstory/.local/share/claude/versions/2.1.285`；
+  端点 `/data/home/shortstory/.deepseek-v4-flash.bashrc`（600，`ANTHROPIC_MODEL=deepseek-flash[1m]`）；
+  环境 `/data/home/shortstory/.claude-env.sh`（600），注入 `~/.profile` 与 `~/.bashrc`。
+- ⚠ **`~/.local/bin/claude` 是启动器脚本，不是裸软链**：`ssh … '<命令>'` 走非登录 shell、不读
+  `.profile`/`.bashrc` ⇒ 启动器自己注入环境再 exec 本体，所以**绝对路径调用在任何 shell 模式下都成立**。
+  自动化一律用 `'/data/home/shortstory/.local/bin/claude -p "…"'`。
+- ⚠ 两个踩过的坑（写脚本必守）：① `cat > 软链` 会**穿透**写坏链接目标（曾把 240 MB 本体覆写成启动器
+  ⇒ 自 exec 死循环、单进程 99% CPU，且**不涨 PID**）；② 远端 `bash -s` 的 stdin 会被 `claude -p` 吞掉
+  ⇒ 脚本半路 EOF、`__SELFTEST__` 行消失，必须 `</dev/null`。
+- 单据：`docs/落地记录-shortstory用户claude环境-261010.md`（含验收读数、成本口径、未做项）。
+
 ## 本实例：DSH（DeepSeek Harness）——文本服务在服务器上（2026-10-08 落地）
 
 - Node：`/home/longxia/toolchain/node/bin/node` = **v24.21.0**（`$HOME` 自装；系统 `/usr/bin/node` 只有 v12.22.9，**别用**）。
