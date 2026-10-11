@@ -107,7 +107,11 @@ if not exist "%~dp0..\out\hello\room-hello.blend" (
   exit /b 1
 )
 echo Starting Blender GUI with software OpenGL ^(llvmpipe^) -- first frame can take ~20 s...
-start "" "C:\blender\blender.exe" "%~dp0..\out\hello\room-hello.blend"
+rem Prefer blender-launcher.exe: it is a GUI-subsystem program, so no black console
+rem window pops up over the viewport (blender.exe itself is a console app by design).
+set "BL=C:\blender\blender-launcher.exe"
+if not exist "%BL%" set "BL=C:\blender\blender.exe"
+start "" "%BL%" "%~dp0..\out\hello\room-hello.blend"
 EOF
 
 # 硬闸门：.bat 里出现任何非 ASCII 字节就中止发布（上面那条坑太贵，不能靠记性）
@@ -193,9 +197,11 @@ cat > "$REPO/README.md" <<EOF
 两条路，任选一条：
 
 * **推荐：双击 \`scripts\\open-room-gui.bat\`** —— 它自己把软件 OpenGL 的两个环境变量设好再开 Blender GUI，
-  不依赖环境变量有没有刷新生效（兜底最稳）。
-* 或者直接双击 \`out\\hello\\room-hello.blend\`（或 \`C:\\blender\\blender.exe\`）—— 前提是宿主上已经
+  不依赖环境变量有没有刷新生效（兜底最稳），而且优先用 \`blender-launcher.exe\`（**不会弹那个黑控制台**）。
+* 或者直接双击 \`out\\hello\\room-hello.blend\` / \`C:\\blender\\blender.exe\` —— 前提是宿主上已经
   跑过 \`bash bin/win10-install-mesa.sh\`。
+  ⚠ 双击 \`blender.exe\` 必然带一个**黑色控制台窗口**（它就是 console 子系统程序，正常现象）；
+  嫌它挡视线就改双击 \`C:\\blender\\blender-launcher.exe\`（同目录，GUI 版启动器，不开控制台）。
 
 ⚠ KVM 客机没有 OpenGL 4.3 显卡驱动，**必须先装 Mesa 软件 OpenGL**；而且**光装 DLL 不够**：
 Mesa 26.x 的 Windows WGL 默认挑 **d3d12** 驱动，在这台 QXL 客机上只会绑到
