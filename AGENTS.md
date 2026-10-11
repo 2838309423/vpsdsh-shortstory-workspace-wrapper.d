@@ -208,3 +208,23 @@
   本轮交叉验证读数：76 页 69 页逐字一致、字符级不一致率 **0.15%**（新批 36 页 0.24%、旧批 40 页 0.05%）。
 
 
+
+## 6 宿主上的 win10 KVM 客机（甲方桌面）——2026-10-11 交接
+
+- **域定义在 `qemu:///system`**（`virsh list` 默认走 `qemu:///session` ⇒ **空列表**，别据此说"没有 VM"）；
+  longxia 属 `libvirt` 组，`virsh -c qemu:///system …` 直接可用。域 `win10`：12 vCPU / 11 GiB /
+  UEFI(OVMF) / 磁盘 `/data/vm/images/win10.qcow2`（85.9 GB）/ 网卡 `default` NAT。
+- **它就是甲方的 Windows 桌面**（客机里跑 dsk-desktop，甲方在那上面用 Termius 连本机），**不是随便一个测试机**：
+  别擅自 shutdown/reset（会丢客机里未保存的东西）；本次未改动客机任何东西。
+- 客机：Windows 10 22H2 `10.0.19045.2965`，`192.168.122.121`（MAC `52:54:00:5e:86:43`），RDP 3389 开；
+  qemu-guest-agent 在（`guest-ping` 通，但版本老：`guest-get-osinfo` 不存在；`guest-exec` 可用）；
+  virtiofs 共享 `\\shared` ⇄ 宿主 `/home/longxia/media-shared`。
+- **看图/接入**：SPICE 只绑宿主回环 `127.0.0.1:5900` 且 `disable-ticketing=on`（**无口令**）⇒ 外部必须打隧道
+  （`ssh -N -L 5900:127.0.0.1:5900 longxia@156.238.255.110` + `remote-viewer spice://127.0.0.1:5900`）；
+  RDP 同理 `-L 13389:192.168.122.121:3389`。宿主装了 `virt-viewer`/`remote-viewer`，但宿主无 X ⇒ 别指望在服务器上看。
+- ⚠ **`virsh screenshot` 会吐旧帧**：2026-10-11 实测它一直给 OOBE「你即将完成电脑设置」那屏，
+  而客机其实早已登录桌面（`explorer.exe`/`dwm.exe` 在跑、`qwinsta` 显示 `console longxia 1 运行中`、
+  `qemu-agent` 秒回）⇒ 判活看 agent + `qwinsta`，**别只看截图**。
+- 助手脚本：`bin/win10.sh {status|start|stop|reset|inspect|shot|console|rdp}`（`inspect` = 客机真会话状态）。
+- 未做：域 `Autostart: disable`（改它要 root，本机无 sudo 免密）⇒ **宿主重启后不会自动起**，
+  得手动 `bin/win10.sh start`。
