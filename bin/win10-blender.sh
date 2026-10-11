@@ -74,11 +74,12 @@ echo "[win10-blender] job=$JOB  script=$(basename "$SCRIPT")  blender=$BLENDER_W
 echo "[win10-blender] 宿主目录: $JD"
 t0=$(date +%s)
 set +e
-bash "$HERE/win10-exec.sh" --timeout "$TIMEOUT" cmd.exe /c "${WINJOB}\\run.bat"
+WIN10_EXEC_PIDFILE="$JD/guest.pid" bash "$HERE/win10-exec.sh" --timeout "$TIMEOUT" cmd.exe /c "${WINJOB}\\run.bat"
 rc=$?
 set -e
 t1=$(date +%s)
 echo "[win10-blender] 客机批处理退出码=$rc  墙钟 $((t1-t0)) s"
+echo "[win10-blender] 停这个 job（若还没结束）: bash bin/win10-exec.sh --kill-last  # pid 文件 $JD/guest.pid"
 LOG="$JD/logs/run.log"
 if [ -f "$LOG" ]; then
   echo "----- run.log 末尾 40 行（完整: $LOG） -----"

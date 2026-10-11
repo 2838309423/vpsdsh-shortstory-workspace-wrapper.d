@@ -101,6 +101,7 @@
 | 5 | 冒烟（小样） | `bin/win10-blender.sh tools/roomgen/room_hello.py --job smoke -- --samples 8 --res 320x180` | 3 张图 **24 s**（≈2.2 s/张）；`__SELFTEST__ 13 0` |
 | 6 | 正式画质 | `… --job hello-01 -- --samples 48 --res 960x540` | 3 张图 **≈3 分钟**（≈1 分钟/张，含降噪）；`__SELFTEST__ 13 0` |
 | 7 | 产物 | `media-shared/blender-jobs/hello-01/out/` | 3×PNG（~390 KB）+ `room-hello.blend`（1.5 MB）+ `scene_report.json` |
+| 8 | 安装器全流程复验 | `bin/win10-install-blender.sh --force` | 下载跳过(sha256 命中)→客机 `rmdir`→`tar` 解压→`move`→版本验收 **全绿** |
 
 **agent 闭环（DSH 自己写脚本、自己跑、自己看图改稿）**：见 §5.2 —— 一轮 3.3 分钟出图，`__SELFTEST__ 13 0`。
 
@@ -156,7 +157,52 @@ dsh headless "读 tools/roomgen/room_hello.py，复制成 tools/roomgen/room_liv
 [02-medium.png](/home/longxia/vpsdsh-shortstory-workspace-wrapper.d/docs/assets/roomgen-agent/02-medium.png) ·
 [03-closeup.png](/home/longxia/vpsdsh-shortstory-workspace-wrapper.d/docs/assets/roomgen-agent/03-closeup.png)
 
-### 5.3 想看 Blender 的窗口（可选）
+### 5.3 共享盘体验包（给 Windows 侧自己玩）
+
+宿主跑一条命令，把整套东西发布到**宿主⇄客机共享盘**：
+
+```bash
+cd /home/longxia/vpsdsh-shortstory-workspace-wrapper.d
+bash bin/publish-share.sh
+```
+
+产物 = `/home/longxia/media-shared/dsh-blender-roomgen.d/`（客机里就是 `Z:\dsh-blender-roomgen.d\`，4.8 MB）：
+
+```
+README.md          中文说明（先看这个）
+scripts/           room_hello.py / room_living.py + run-hello.bat / run-living.bat
+out/hello/         样板卧室：3 张 960x540 PNG + room-hello.blend + scene_report.json
+out/living/        agent 自己写的小客厅：3 张 PNG + room-living.blend
+host/              win10-exec.sh / win10-blender.sh / win10-install-blender.sh / win10.sh（副本）
+_manifest.txt      全包 md5 清单 + 生成时间 + 仓 HEAD + 客机 Blender 版本
+```
+
+**在 Windows 里怎么体验（三种，从快到深）**：
+
+1. **双击 `scripts\run-hello.bat`** —— 无头渲染，跑完自动弹出产物目录。
+   实测（960×540 / 16 samples）：**66.9 s 出 3 张图**，控制台末行 `__SELFTEST__ 13 0`、`exit code = 0`。
+2. **双击 `out\hello\room-hello.blend`** —— 进 Blender GUI，自己转视角/关灯开灯/加家具/F12 出图。
+3. 回宿主让 DSH 再写一版（见 §5.2）。
+
+> `.bat` 支持环境变量覆盖：`ROOMGEN_OUT`（输出目录）、`ROOMGEN_SAMPLES`（采样数）、
+> `ROOMGEN_NOUI=1`（不弹窗不暂停，自动化用）。
+> ⚠ **`.bat` 内容必须纯 ASCII**（中文只放 README）：cmd.exe 按 OEM 代码页解析批处理，
+> UTF-8 中文注释会被解成乱码甚至元字符，实测把 Blender 的 `-b` 吃掉、以 GUI 模式挂死。见 §7-12。
+
+### 5.3.1 一键给客机装 Blender（幂等）
+
+```bash
+bash bin/win10-install-blender.sh            # 已装且版本对 ⇒ 立即返回，什么都不做
+bash bin/win10-install-blender.sh --check    # 只体检（没装则退出码 1）
+bash bin/win10-install-blender.sh --force    # rmdir C:\blender 后重装
+bash bin/win10-install-blender.sh --version 5.2.2   # 换版本（内嵌 sha256 只对 4.5.14 有，其它版本会提示）
+```
+
+流程：宿主下载 zip → sha256 校验（官方**不提供** `.zip.sha256`，内嵌「本机实测已知良好」值）→
+客机内 `tar -xf` 解压到 `C:\` → `move` 成 `C:\blender` → `blender.exe --version` 验收。
+**2026-10-11 用 `--force` 全流程实测通过**（rmdir → 解压 79 s → move → `Blender 4.5.14 LTS`）。
+
+### 5.4 想看 Blender 的窗口（可选）
 
 客机是甲方桌面，`C:\blender\blender.exe` 双击就能出 GUI。远程看：
 `ssh -N -L 5900:127.0.0.1:5900 longxia@156.238.255.110` + `remote-viewer spice://127.0.0.1:5900`（宿主无 X，
@@ -193,6 +239,16 @@ L0 只是证明管道通；真正用在短剧生产上，必须先有 spec（场
 9. **`.blend1` 是 Blender 的自动备份**（覆盖保存时生成），不是脏数据。
 10. **渲染时间对得上账**：像素 × 采样数近似线性。320×180/8spp≈2.2 s → 960×540/48spp≈60 s（实测吻合）。
 11. **别把 Blender 装到 `Z:`（virtiofs）上跑**：启动/加载要走 WinFsp，慢且 Multi-Process 行为不稳；装到 `C:\` 最稳。
+12. **给客机双击的 `.bat` 必须纯 ASCII**：cmd.exe 按 OEM 代码页(cp936)解析批处理，UTF-8 中文注释会解成乱码、
+    甚至吐出 `&`/`|` 之类元字符 ⇒ 整行解析坏、命令错位。实测后果：**Blender 的 `-b` 参数被吃掉，以 GUI 模式启动并挂死**。
+13. **`set VAR=1 && 下一条` 有行尾空格陷阱**：值会变成 `"1 "`（带空格）⇒ 批处理里 `if "%VAR%"=="1"` 判假。
+    自动化一律写 `set "VAR=1"`，或干脆写个 wrapper `.bat` 用 `call` 进目标 `.bat`（引号/反斜杠一次都不用手工转义）。
+14. **`pause` 在 session 0（guest-exec）里会永久挂住**：客机没有键盘给它读。所以给客机双击的 `.bat` 要留
+    `ROOMGEN_NOUI=1` 这类开关；否则从宿主自动化调用它 = 等到超时。
+15. **僵尸进程会锁住共享盘上的日志文件**（报"另一个程序正在使用此文件，进程无法访问"）：宿主杀 job 不会清客机进程，
+    反复测同一个 job 就攒下 `cmd.exe`。清法：`powershell Get-CimInstance Win32_Process`（用 `.ps1` 文件跑，别在命令行拼引号）
+    看 CommandLine 再精准 `Stop-Process` —— **别 `taskkill /IM cmd.exe`**，那是甲方桌面，可能误杀。
+16. **客机是甲方桌面，别乱杀进程**：`explorer.exe` 在 session 1（RDP）的是甲方在用的，session 0 的才是我们惹出来的。
 
 ---
 
@@ -234,11 +290,18 @@ L0 只是证明管道通；真正用在短剧生产上，必须先有 spec（场
 ├── docs/方案-dsh驱动win10-blender-3D小房间-261011.md   ← 本文件
 ├── tools/roomgen/room_living.py           **agent 自己写的**小客厅（496 行，留档证据）
 ├── docs/assets/roomgen-hello/*.png        首轮产物留档（我手写样板跑的）
+├── bin/win10-install-blender.sh           客机 Blender 幂等安装器（--check/--force/--version）
+├── bin/publish-share.sh                   把体验包发布到共享盘
 ├── docs/assets/roomgen-agent/*.png        agent 自己跑出来的（agent-demo）
 └── AGENTS.md §7                           长期口径（下次会话自动注入）
 
 宿主共享盘（客机侧 = Z:）：
 /home/longxia/media-shared/
+├── dsh-blender-roomgen.d/                          ★ 体验包（Windows 里双击就能玩）
+│   ├── README.md  _manifest.txt
+│   ├── scripts/{room_*.py, run-*.bat}
+│   ├── out/{hello,living}/                         PNG + .blend
+│   └── host/*.sh                                   宿主入口副本
 ├── _dl/blender-4.5.14-windows-x64.zip(+.sha256)   装包缓存（可删）
-└── blender-jobs/<job>/{script,run.bat,logs,out}   每个 job 一份
+└── blender-jobs/<job>/{script,run.bat,logs,out,guest.pid}   每个 job 一份
 ```

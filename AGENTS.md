@@ -243,15 +243,33 @@ MVP 已跑通，全案在 `docs/方案-dsh驱动win10-blender-3D小房间-261011
   送脚本、收 png/blend/log 全走它；宿主直接 `read`/`cp`，无需再传。
 - **Blender 装法**：官方 Windows **便携版 zip**（不是 msi）解到 **`C:\blender\blender.exe`**，
   当前 **4.5.14 LTS**；免管理员、免注册表、整包可回滚。装包缓存在 `media-shared/_dl/`（带 sha256）。
-- **入口两条**：
+- **入口四条**：
   - `bin/win10-exec.sh [--timeout N] <exe> [args...]`（客机执行器，含 `--kill-last`）
-  - `bin/win10-blender.sh <脚本.py> [--job NAME] [-- 脚本参数]`（job 运行器：送脚本→跑→回读 run.log）
+  - `bin/win10-blender.sh <脚本.py> [--job NAME] [-- 脚本参数]`（job 运行器：送脚本→跑→回读 run.log；
+    每个 job 把客机 pid 记在 `<job>/guest.pid`）
+  - `bin/win10-install-blender.sh [--check|--force|--version x.y.z]`（**幂等装/体检客机 Blender**，
+    2026-10-11 用 `--force` 全流程实测通过：宿主下载→sha256 校验→客机 tar 解压→move→版本验收）
+  - `bin/publish-share.sh`（把体验包发布到共享盘 `media-shared/dsh-blender-roomgen.d/`：
+    脚本 + 可双击 .bat + 已渲图/blend + 宿主入口副本 + md5 清单）
   - 样板场景：`tools/roomgen/room_hello.py`（4.2×3.6×2.7 m 房间 + 门/窗 + 家具 + 3 机位 + 自检）
 - **一律 `-b --factory-startup --python-exit-code 1`**：脚本抛异常 ⇒ 客机退出码非 0，不混"静默成功"。
+- **共享盘里那套体验包**：`/home/longxia/media-shared/dsh-blender-roomgen.d/`（客机里 = `Z:\dsh-blender-roomgen.d\`）
+  —— `scripts/run-hello.bat` / `run-living.bat` 在 Windows 里**双击就能渲**（无头 Cycles，跑完自动开产物目录）；
+  `out/*/room-*.blend` 双击进 Blender GUI 随手改。**仓是真值源，共享盘是投影**：改完脚本回宿主跑
+  `bin/publish-share.sh` 重新发布，别在共享盘里改。
 - **渲染器选 Cycles CPU**（不是 EEVEE）：KVM 无 GPU 直通，EEVEE 无头要 GL 上下文，靠不住。
 - ⚠ **坑（都实测过）**：
   ① guest-exec 的 base64 回传会截断 ⇒ 长任务输出**必须重定向到文件**；
   ② **宿主侧 Ctrl-C/杀 job 不会停客机里的程序** ⇒ 先 `bin/win10-exec.sh --kill-last`；
   ③ 刚杀过宿主任务时 qemu-ga 会短暂回 `Guest agent is not responding`，**等十几秒重试即可**；
   ④ 杀宿主 job ≠ 停渲染，同一 `out/` 目录会被两个 Blender 抢写 ⇒ 换 job 名或等它收尾；
-  ⑤ 客机磁盘 85 GB（装前 C: 剩 55.4 GB / 装后 50.7 GiB），Blender 便携版解压占 **892.8 MB**。
+  ⑤ 客机磁盘 85 GB（装前 C: 剩 55.4 GB / 装后 50.7 GiB），Blender 便携版解压占 **892.8 MB**；
+  ⑥ **给客机双击的 `.bat` 必须纯 ASCII**：cmd.exe 按 OEM 代码页(cp936)解析批处理，UTF-8 中文注释会解成乱码、
+     甚至吐出元字符 ⇒ 整行解析坏、命令错位（实测把 Blender 的 `-b` 吃掉 ⇒ GUI 模式挂死）。
+     中文只放 README。
+  ⑦ **`set VAR=1 && next` 有行尾空格陷阱**：值会变成 `"1 "`（带空格）⇒ 批处理里的 `if "%VAR%"=="1"` 判假。
+     自动化调用一律写 `set "VAR=1"`，或干脆写一个 wrapper .bat 用 `call` 进目标 .bat。
+  ⑧ **`pause` 在 session 0（guest-exec）里会永久挂住**：给客机双击的 .bat 若要自动化复用，
+     必须留 `ROOMGEN_NOUI=1` 这类开关跳过 `start`/`pause`（本仓 .bat 已经留了）。
+  ⑨ 宿主杀 job 不会清客机进程 ⇒ **同一 job 反复测会攒下僵尸 cmd.exe 并锁住日志文件**
+     （报"另一个程序正在使用此文件"）；用 `powershell Get-CimInstance Win32_Process` 列 CommandLine 后精准 stop。
