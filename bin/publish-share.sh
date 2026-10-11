@@ -38,7 +38,7 @@ cp -f "$ROOT/tools/roomgen/room_hello.py"  "$REPO/scripts/"
 cp -f "$ROOT/tools/roomgen/room_living.py" "$REPO/scripts/" 2>/dev/null || true
 
 # ---------- 2. 宿主侧入口 ----------
-for f in win10-exec.sh win10-blender.sh win10-install-blender.sh win10.sh; do
+for f in win10-exec.sh win10-blender.sh win10-install-blender.sh win10-install-mesa.sh win10.sh make-viewer.sh; do
   [ -f "$ROOT/bin/$f" ] && cp -f "$ROOT/bin/$f" "$REPO/bin/"
 done
 chmod 755 "$REPO"/bin/*.sh 2>/dev/null || true
@@ -97,11 +97,26 @@ sync_out() {  # $1=job 目录  $2=目标子目录
   mkdir -p "$REPO/out/$2"
   cp -f "$JOBS/$1/out/"*.png "$REPO/out/$2/" 2>/dev/null || true
   cp -f "$JOBS/$1/out/"*.blend "$REPO/out/$2/" 2>/dev/null || true
+  cp -f "$JOBS/$1/out/"*.mp4 "$REPO/out/$2/" 2>/dev/null || true
+  cp -f "$JOBS/$1/out/"*.glb "$REPO/out/$2/" 2>/dev/null || true
+  cp -f "$JOBS/$1/out/contact-sheet.png" "$REPO/out/$2/" 2>/dev/null || true
   cp -f "$JOBS/$1/out/scene_report.json" "$REPO/out/$2/" 2>/dev/null || true
   rm -f "$REPO/out/$2"/*.blend1        # Blender 覆盖保存时的备份，不进包
 }
 sync_out hello-01   hello
 sync_out agent-demo living
+sync_out tour-01    hello          # 相机穿行动画（mp4/glb/分镜条）+ 覆盖同目录的高画质静帧
+
+# ---------- 4.5 浏览器 3D 查看器（glb 内嵌，双击可用） ----------
+if [ -f "$REPO/out/hello/room.glb" ]; then
+  bash "$HERE/make-viewer.sh" "$REPO/out/hello/room.glb" "$REPO/web" || echo "[publish-share] ⚠ 查看器生成失败（不影响其它产物）"
+fi
+# 客机里 Blender 的软件 OpenGL 是否装了（决定"双击 .blend 能不能开 GUI"）
+if [ $GUEST -eq 1 ]; then
+  MESA_STATE=$(bash "$HERE/win10-exec.sh" --timeout 60 cmd.exe /c 'if exist C:\blender\opengl32.dll (echo 已装) else (echo 未装)' 2>/dev/null | tr -d '\r' | grep -m1 . || echo 未探测)
+else
+  MESA_STATE="未探测"
+fi
 
 # ---------- 5. 方案文档（从本仓拷过来，保持体验仓自足） ----------
 cp -f "$ROOT/docs/方案-dsh驱动win10-blender-3D小房间-261011.md" "$REPO/docs/方案与路线图.md" 2>/dev/null || true
@@ -129,15 +144,43 @@ cat > "$REPO/README.md" <<EOF
 - 方案与路线图：\`docs/方案与路线图.md\`（取舍、L0→L4、未决事项）
 - 上游工作区仓（真值源）：\`/home/longxia/vpsdsh-shortstory-workspace-wrapper.d/\`
 
-## 三种体验方式
+## 四种体验方式（从"马上能看"到"自己动手"）
 
-### A. 在 Windows 里双击（最快，1~3 分钟出图）
+### A. 看动画（最快，双击就能播）
+双击 \`out\\hello\\room-tour.mp4\` —— 5 秒相机穿行，从门口全景 → 床边 → 书桌特写。
+（由 \`scripts/room_hello.py --anim 60\` 渲 60 帧，宿主 ffmpeg 合成；分镜条见 \`out\\hello\\contact-sheet.png\`）
+
+### B. 浏览器里转着看（交互，不需要显卡）
+双击 \`web\\viewer-hello.html\` —— 一个自包含的 three.js 查看器（3D 数据已内嵌，无需联网/无需服务器）。
+鼠标左键拖 = 转，滚轮 = 缩放；面板里可开"自动旋转 / 剖视（隐掉前墙天花板）/ 线框"。
+
+### C. Blender GUI（需要软件 OpenGL，客机里：$MESA_STATE）
+双击 \`out\\hello\\room-hello.blend\`。⚠ KVM 客机没有 OpenGL 4.3 显卡驱动，
+**必须**先把 Mesa 的软件 OpenGL 装到 \`C:\\blender\\\`（宿主上跑 \`bash bin/win10-install-mesa.sh\`）。
+没装的话会弹 "Unsupported Graphics Card Configuration"。
+**无头渲染不需要它** —— 那是 Cycles CPU 干的活，跟显卡无关。
+
+### D. 在 Windows 里双击 .bat 重渲（1~3 分钟出图）
 1. 打开 \`Z:\\helloworld-blender-roomgen.d\\scripts\\\`
 2. 双击 **\`run-hello.bat\`** —— 渲染样板卧室；双击 **\`run-living.bat\`** —— 渲染 agent 写的小客厅
 3. 跑完会自动弹出 \`out\\<名字>\\\` 目录，里面是 3 张 PNG（全景 / 中景 / 特写）+ 一个 \`.blend\`
 4. 窗口里末行应看到 \`__SELFTEST__ 13 0\`（13 条断言全过；非 0 就是有问题）
 
 > 前提：客机里已装 Blender（见下）。没装的话 .bat 会提示你去宿主跑安装器。
+
+## 目录内容
+
+| 路径 | 说明 |
+|---|---|
+| \`scripts/room_hello.py\` | 样板卧室：4.2×3.6×2.7 m，门窗 + 家具 + 3 机位；\`--anim N\` 出动画帧、\`--glb\` 出 glTF |
+| \`scripts/room_living.py\` | DSH agent 自己写的小客厅 |
+| \`scripts/run-*.bat\` | 客机里双击即渲（无头 Cycles CPU） |
+| \`out/hello/\` | 3 张高画质静帧 + \`room-tour.mp4\` + \`room.glb\` + \`contact-sheet.png\` + \`.blend\` + \`scene_report.json\` |
+| \`out/living/\` | agent 版小客厅产物 |
+| \`web/viewer-hello.html\` | 自包含 3D 查看器（glb 内嵌，file:// 双击可用） |
+| \`web/viewer.html\` | 同一查看器，但走 URL 读 glb（需要 http 服务） |
+| \`bin/*.sh\` | 宿主侧入口：执行器 / job 运行器 / Blender 安装器 / **Mesa 软件 GL 安装器** |
+| \`_manifest.txt\` | 全包 md5 + 生成时间 + 仓 HEAD + 客机 Blender 版本 |
 
 ### B. 在 Windows 里打开 .blend 自由玩
 \`Z:\\helloworld-blender-roomgen.d\\out\\hello\\room-hello.blend\` 双击 → Blender GUI 打开 →
@@ -166,7 +209,7 @@ source bin/env.sh && dsh headless "用 tools/roomgen/room_hello.py 当模板，�
 | \`bin/*.sh\` | 宿主（Linux）侧入口：客机执行器 / job 运行器 / Blender 安装器（**副本**） |
 | \`_manifest.txt\` | 本包 md5 清单 + 生成时间 + 来源仓 HEAD + 客机 Blender 版本 |
 
-## 客机里装 Blender（宿主上一条命令，幂等）
+## 客机里装 Blender / 软件 OpenGL（宿主上各一条命令，都幂等）
 
 \`\`\`bash
 cd /home/longxia/vpsdsh-shortstory-workspace-wrapper.d

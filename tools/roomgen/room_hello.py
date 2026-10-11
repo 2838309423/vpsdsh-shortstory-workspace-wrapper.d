@@ -45,6 +45,11 @@ def parse_args():
     p.add_argument("--samples", type=int, default=48)
     p.add_argument("--res", default="960x540")
     p.add_argument("--shots", default="all")
+    p.add_argument("--anim", type=int, default=0, help=">0 时额外出动画帧（相机沿 3 个机位平滑穿行）")
+    p.add_argument("--anim-res", default="480x270")
+    p.add_argument("--anim-samples", type=int, default=12)
+    p.add_argument("--fps", type=int, default=12)
+    p.add_argument("--glb", default="room.glb", help="导出 glTF(.glb) 给浏览器看；空串 = 不导出")
     a = p.parse_args(argv)
     a.outdir = os.path.abspath(a.outdir).replace("\\", "/")
     a.blend = os.path.abspath(a.blend).replace("\\", "/") if a.blend else os.path.join(a.outdir, a.name + ".blend")
@@ -349,6 +354,60 @@ SHOTS = [
 ]
 
 
+def _lerp(a, b, t):
+    return tuple(x + (y - x) * t for x, y in zip(a, b))
+
+
+def _smooth(t):
+    return t * t * (3.0 - 2.0 * t)
+
+
+def tour_path(n):
+    """把 3 个机位当路径点做平滑（smoothstep）插值 ⇒ n 帧的 (loc, aim, lens)"""
+    pts = [(s["loc"], s["aim"], s["lens"]) for s in SHOTS]
+    segs = len(pts) - 1
+    out = []
+    for i in range(n):
+        u = i / (n - 1) if n > 1 else 0.0
+        k = min(int(u * segs), segs - 1)
+        t = _smooth(u * segs - k)
+        (l0, a0, z0), (l1, a1, z1) = pts[k], pts[k + 1]
+        out.append((_lerp(l0, l1, t), _lerp(a0, a1, t), z0 + (z1 - z0) * t))
+    return out
+
+
+def render_tour(sc, frames):
+    adir = os.path.join(ARGS.outdir, "frames")
+    os.makedirs(adir, exist_ok=True)
+    cam = new_camera("cam_tour", SHOTS[0]["loc"], SHOTS[0]["aim"], SHOTS[0]["lens"])
+    sc.camera = cam
+    rx, ry = ARGS.anim_res.split("x")
+    sc.render.resolution_x, sc.render.resolution_y = int(rx), int(ry)
+    sc.cycles.samples = ARGS.anim_samples
+    sc.render.fps = ARGS.fps
+    path = tour_path(frames)
+    for i, (loc, aim, lens) in enumerate(path):
+        cam.location = loc
+        cam.data.lens = lens
+        look_at(cam, aim)
+        sc.render.filepath = "%s/f%04d" % (adir, i)
+        bpy.ops.render.render(write_still=True)
+        if i % 10 == 0 or i == frames - 1:
+            log("  动画帧 %d/%d" % (i + 1, frames))
+    log("动画帧共 %d 张 → %s（%s, %d samples, %d fps ≈ %.1f s）"
+        % (frames, adir, ARGS.anim_res, ARGS.anim_samples, ARGS.fps, frames / float(ARGS.fps)))
+    return adir
+
+
+def export_glb(path):
+    try:
+        bpy.ops.preferences.addon_enable(module="io_scene_gltf2")
+    except Exception:
+        pass
+    bpy.ops.export_scene.gltf(filepath=path, export_format='GLB', export_apply=True, use_selection=False)
+    log("glTF 导出 → %s (%.1f KB)" % (path, os.path.getsize(path) / 1024.0))
+
+
 def build_cameras():
     out = []
     for s in SHOTS:
@@ -435,6 +494,27 @@ def main():
         if mx < 0.3:
             fails.append("无高光/无光源 " + p)
 
+    frames_dir = None
+    if ARGS.anim > 0:
+        frames_dir = render_tour(sc, ARGS.anim)
+        assert_count += 2
+        n = len([f for f in os.listdir(frames_dir) if f.endswith(".png")])
+        if n != ARGS.anim:
+            fails.append("动画帧数不对 %d != %d" % (n, ARGS.anim))
+        if n and os.path.getsize(os.path.join(frames_dir, "f0000.png")) < 2000:
+            fails.append("动画首帧太小，疑似空白")
+
+    glb_path = None
+    if ARGS.glb:
+        glb_path = ARGS.glb if os.path.isabs(ARGS.glb) else os.path.join(ARGS.outdir, ARGS.glb)
+        try:
+            export_glb(glb_path)
+        except Exception as e:
+            fails.append("glTF 导出失败: %s" % e)
+        assert_count += 1
+        if glb_path and not os.path.exists(glb_path):
+            fails.append("glb 没导出 " + str(glb_path))
+
     bpy.ops.wm.save_as_mainfile(filepath=ARGS.blend)
     assert_count += 1
     if not os.path.exists(ARGS.blend):
@@ -445,7 +525,9 @@ def main():
                   objects=len([o for o in bpy.data.objects if o.type == 'MESH']),
                   lights=len([o for o in bpy.data.objects if o.type == 'LIGHT']),
                   shots=[dict(name=s["name"], lens=s["lens"], loc=list(s["loc"]), aim=list(s["aim"]), note=s["note"]) for s, _ in shots],
-                  renders=[os.path.basename(p) for p in made], blend=os.path.basename(ARGS.blend))
+                  renders=[os.path.basename(p) for p in made], blend=os.path.basename(ARGS.blend),
+                  anim_frames=ARGS.anim, anim_dir=("frames" if ARGS.anim > 0 else None),
+                  fps=ARGS.fps, glb=(os.path.basename(glb_path) if glb_path and os.path.exists(glb_path) else None))
     rp = os.path.join(ARGS.outdir, "scene_report.json")
     with open(rp, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)

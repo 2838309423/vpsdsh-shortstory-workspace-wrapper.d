@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>3D 小房间 · 浏览器里转着看</title>
+<style>
+  html,body{margin:0;height:100%;background:#0f1218;color:#e6edf3;
+            font:13px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;overflow:hidden}
+  canvas{display:block}
+  #panel{position:fixed;left:14px;top:14px;padding:12px 14px;border-radius:10px;
+         background:rgba(16,20,28,.86);border:1px solid #2b3542;backdrop-filter:blur(6px);max-width:330px}
+  #panel h1{margin:0 0 6px;font-size:14px;font-weight:600}
+  #panel .sub{color:#8b98a8;font-size:11.5px;margin-bottom:10px}
+  label{display:block;margin:5px 0;cursor:pointer;user-select:none}
+  input[type=checkbox]{vertical-align:-1px;margin-right:6px}
+  #panel .hint{color:#7d8a99;font-size:11px;margin-top:10px;border-top:1px solid #232c37;padding-top:8px}
+  #msg{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;
+       color:#9fb0c3;font-size:14px;max-width:70vw}
+  #msg.err{color:#ff8b8b}
+  kbd{background:#1d2530;border:1px solid #333d4b;border-radius:4px;padding:0 4px;font-size:11px}
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/jsm/" } }
+</script>
+</head>
+<body>
+<div id="panel">
+  <h1>3D 小房间 · 可转动</h1>
+  <div class="sub">Blender 无头渲染出来的场景，导出 glTF 后在浏览器里实时转</div>
+  <label><input type="checkbox" id="spin" checked> 自动旋转</label>
+  <label><input type="checkbox" id="cut"> 剖视（隐掉前墙 / 天花板）</label>
+  <label><input type="checkbox" id="grid" checked> 显示地面网格</label>
+  <label><input type="checkbox" id="wire"> 线框</label>
+  <div class="hint">
+    鼠标左键拖 = 转 · 滚轮 = 缩放 · 右键拖 = 平移<br>
+    场景报告：<span id="stat">载入中…</span>
+  </div>
+</div>
+<div id="msg">正在载入 3D 场景…</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// 生成器会把这里换成 base64 的 .glb；留空则按相对路径加载（需要通过 http 打开）
+const GLB_B64 = "__GLB_BASE64__";
+const GLB_URL = "__GLB_URL__";
+
+const msg = document.getElementById('msg');
+const stat = document.getElementById('stat');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f1218);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.05, 500);
+camera.position.set(4.2, 3.0, 4.2);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.9;
+
+// —— 灯光：补光为主，场景自带的自发光/材质在 glTF 里
+scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x2a2118, 0.7));
+const dir = new THREE.DirectionalLight(0xffffff, 2.0);
+dir.position.set(6, 9, 5);
+scene.add(dir);
+const warm = new THREE.PointLight(0xffd9a0, 14, 14, 2);
+warm.position.set(0, 2.45, 0);
+scene.add(warm);
+
+const grid = new THREE.GridHelper(16, 16, 0x3a4a5e, 0x243040);
+grid.position.y = -0.001;
+scene.add(grid);
+
+const CUT = /^(wall_front|ceiling|night_plate)/i;
+let meshes = [];
+
+function fit(root) {
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const r = Math.max(size.x, size.y, size.z) * 0.9;
+  controls.target.copy(center);
+  camera.position.copy(center).add(new THREE.Vector3(r * 0.85, r * 0.55, r * 0.85));
+  camera.near = r / 200; camera.far = r * 40; camera.updateProjectionMatrix();
+  controls.update();
+  return { size, center };
+}
+
+function onLoaded(gltf) {
+  const root = gltf.scene;
+  root.traverse(o => {
+    if (o.isMesh) {
+      meshes.push(o);
+      if (o.material) o.material.side = THREE.FrontSide;
+    }
+  });
+  scene.add(root);
+  const { size, center } = fit(root);
+  const lights = [];
+  root.traverse(o => { if (o.isLight) lights.push(o.name); });
+  stat.textContent = `${meshes.length} 个网格 · 尺寸 ${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)} m · 中心 (${center.x.toFixed(1)}, ${center.y.toFixed(1)}, ${center.z.toFixed(1)})`;
+  msg.style.display = 'none';
+}
+
+const loader = new GLTFLoader();
+function fail(err) {
+  msg.className = 'err';
+  msg.innerHTML = '载入失败：' + (err && err.message ? err.message : err) +
+    '<br><br>若你是用 <b>http</b> 打开的，请确认 <code>room.glb</code> 在同一层的 <code>../out/hello/</code> 下；' +
+    '<br>或改用自包含的 <code>viewer-hello.html</code>（glb 已内嵌，双击即可）。';
+  console.error(err);
+}
+
+if (GLB_B64 && GLB_B64.length > 100) {
+  const bin = Uint8Array.from(atob(GLB_B64), c => c.charCodeAt(0));
+  loader.parse(bin.buffer, '', onLoaded, fail);
+} else {
+  loader.load(GLB_URL, onLoaded, undefined, fail);
+}
+
+// —— 开关
+document.getElementById('spin').onchange = e => { controls.autoRotate = e.target.checked; };
+document.getElementById('grid').onchange = e => { grid.visible = e.target.checked; };
+document.getElementById('cut').onchange = e => {
+  meshes.forEach(m => { if (CUT.test(m.name)) m.visible = !e.target.checked; });
+};
+document.getElementById('wire').onchange = e => {
+  meshes.forEach(m => {
+    if (!m.material) return;
+    (Array.isArray(m.material) ? m.material : [m.material]).forEach(mm => { mm.wireframe = e.target.checked; });
+  });
+};
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+(function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>
