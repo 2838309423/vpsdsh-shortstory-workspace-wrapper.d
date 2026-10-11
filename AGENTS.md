@@ -235,6 +235,12 @@
 甲方想法：DSH(DeepSeek) 当 agent 写 python，驱动客机里的 Blender 搭「3D 小房间」短剧场所。
 MVP 已跑通，全案在 `docs/方案-dsh驱动win10-blender-3D小房间-261011.md`。长期要记的只有这些：
 
+- **本套东西有独立成品仓 + gitee 远端**（2026-10-11 甲方要求，**别再叫 `dsh-` 前缀**）：
+  仓 `/home/longxia/helloworld-blender-roomgen.d/` = `git@gitee.com:gushiteng/helloworld-blender-roomgen.d.git`。
+  命名口径：**helloworld 级最小验证，且不 DSH 专属**（核心只有 guest-agent 下命令 + virtiofs 送文件 + Blender 无头渲，
+  换别的 agent 或手写脚本照样能用）。仓内 `docs/最小MVP-搭建与实测.md` 是「从零照做一遍」的施工文档、
+  `docs/方案与路线图.md` 是方案副本；`scripts/ bin/ out/ README.md _manifest.txt` 都是**生成物**。
+
 - **三个角色**：① DSH（宿主 Linux）＝写脚本/发命令/验收；② Blender（客机 win10）＝干活；
   ③ virtiofs 共享＝唯一数据面。**客机不需要装任何"被驱动端"**（无 SSH/WinRM/agent 客户端）。
 - **控制面 = qemu-guest-agent `guest-exec`**（`bin/win10-exec.sh`）：以 **SYSTEM / session 0** 跑，
@@ -249,11 +255,14 @@ MVP 已跑通，全案在 `docs/方案-dsh驱动win10-blender-3D小房间-261011
     每个 job 把客机 pid 记在 `<job>/guest.pid`）
   - `bin/win10-install-blender.sh [--check|--force|--version x.y.z]`（**幂等装/体检客机 Blender**，
     2026-10-11 用 `--force` 全流程实测通过：宿主下载→sha256 校验→客机 tar 解压→move→版本验收）
-  - `bin/publish-share.sh`（把体验包发布到共享盘 `media-shared/dsh-blender-roomgen.d/`：
-    脚本 + 可双击 .bat + 已渲图/blend + 宿主入口副本 + md5 清单）
+  - `bin/publish-share.sh [--push] [--no-guest]`（**发布器 / 唯一出口**，三层：本仓是真值源 →
+    重建体验仓 `/home/longxia/helloworld-blender-roomgen.d/`（`--push` 顺手 commit+push gitee）→
+    rsync 成共享盘投影；`scripts/ bin/ out/ README.md _manifest.txt` 都是它生成的，`docs/` 在体验仓手工维护。
+    生成 `.bat` 后有**纯 ASCII 硬闸门**，含非 ASCII 字节直接拒绝发布）
   - 样板场景：`tools/roomgen/room_hello.py`（4.2×3.6×2.7 m 房间 + 门/窗 + 家具 + 3 机位 + 自检）
 - **一律 `-b --factory-startup --python-exit-code 1`**：脚本抛异常 ⇒ 客机退出码非 0，不混"静默成功"。
-- **共享盘里那套体验包**：`/home/longxia/media-shared/dsh-blender-roomgen.d/`（客机里 = `Z:\dsh-blender-roomgen.d\`）
+- **共享盘里那套体验包**：`/home/longxia/media-shared/helloworld-blender-roomgen.d/`
+  （客机里 = `Z:\helloworld-blender-roomgen.d\`；旧名 `dsh-blender-roomgen.d` 已于 2026-10-11 改名并删除）
   —— `scripts/run-hello.bat` / `run-living.bat` 在 Windows 里**双击就能渲**（无头 Cycles，跑完自动开产物目录）；
   `out/*/room-*.blend` 双击进 Blender GUI 随手改。**仓是真值源，共享盘是投影**：改完脚本回宿主跑
   `bin/publish-share.sh` 重新发布，别在共享盘里改。

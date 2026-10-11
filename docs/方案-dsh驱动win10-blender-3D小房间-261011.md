@@ -3,6 +3,10 @@
 - 日期：2026-10-11　｜　状态：**helloworld 级 MVP 已跑通**（可复制、可重跑、带自检）
 - 作者：DSH 会话（本机 usavps），甲方：人类用户
 - 相关长期记忆：本仓 `AGENTS.md` §6（win10 客机）、§7（本条）
+- **施工文档（从零照做一遍）在独立体验仓**：`/home/longxia/helloworld-blender-roomgen.d/docs/最小MVP-搭建与实测.md`
+  ／ gitee `git@gitee.com:gushiteng/helloworld-blender-roomgen.d.git`
+  ／ 共享盘投影 `/home/longxia/media-shared/helloworld-blender-roomgen.d/`（客机里 = `Z:\helloworld-blender-roomgen.d\`）。
+  本文是**方案**（取舍/路线图/未决），那份是**施工手册**；体验仓里的 `scripts/ bin/ out/` 由 `bin/publish-share.sh` 生成。
 
 ---
 
@@ -166,16 +170,20 @@ cd /home/longxia/vpsdsh-shortstory-workspace-wrapper.d
 bash bin/publish-share.sh
 ```
 
-产物 = `/home/longxia/media-shared/dsh-blender-roomgen.d/`（客机里就是 `Z:\dsh-blender-roomgen.d\`，4.8 MB）：
+产物 = `/home/longxia/media-shared/helloworld-blender-roomgen.d/`（客机里就是 `Z:\helloworld-blender-roomgen.d\`，4.9 MB）：
 
 ```
 README.md          中文说明（先看这个）
+docs/              最小MVP-搭建与实测.md（施工手册）/ 方案与路线图.md（本文副本）
 scripts/           room_hello.py / room_living.py + run-hello.bat / run-living.bat
 out/hello/         样板卧室：3 张 960x540 PNG + room-hello.blend + scene_report.json
 out/living/        agent 自己写的小客厅：3 张 PNG + room-living.blend
-host/              win10-exec.sh / win10-blender.sh / win10-install-blender.sh / win10.sh（副本）
-_manifest.txt      全包 md5 清单 + 生成时间 + 仓 HEAD + 客机 Blender 版本
+bin/               win10-exec.sh / win10-blender.sh / win10-install-blender.sh / win10.sh（副本）
+_manifest.txt      全包 md5 清单 + 生成时间 + 来源仓 HEAD + 客机 Blender 版本
 ```
+
+> `bin/publish-share.sh` 现在会**先重建独立体验仓** `/home/longxia/helloworld-blender-roomgen.d/`
+> （加 `--push` 顺手 commit+push gitee），再 rsync 成上面这份共享盘投影；`docs/` 在体验仓手工维护。
 
 **在 Windows 里怎么体验（三种，从快到深）**：
 
@@ -297,7 +305,7 @@ L0 只是证明管道通；真正用在短剧生产上，必须先有 spec（场
 
 宿主共享盘（客机侧 = Z:）：
 /home/longxia/media-shared/
-├── dsh-blender-roomgen.d/                          ★ 体验包（Windows 里双击就能玩）
+├── helloworld-blender-roomgen.d/                   ★ 体验包（Windows 里双击就能玩）
 │   ├── README.md  _manifest.txt
 │   ├── scripts/{room_*.py, run-*.bat}
 │   ├── out/{hello,living}/                         PNG + .blend
