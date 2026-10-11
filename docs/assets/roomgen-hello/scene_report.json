@@ -1,0 +1,67 @@
+{
+  "name": "room-hello",
+  "blender": "4.5.14 LTS",
+  "room": {
+    "w": 4.2,
+    "d": 3.6,
+    "h": 2.7
+  },
+  "samples": 48,
+  "res": "960x540",
+  "engine": "CYCLES/CPU",
+  "objects": 73,
+  "lights": 6,
+  "shots": [
+    {
+      "name": "01-establishing",
+      "lens": 19.0,
+      "loc": [
+        -1.68,
+        1.45,
+        1.62
+      ],
+      "aim": [
+        0.55,
+        -1.05,
+        1.0
+      ],
+      "note": "左前角全景：床/衣柜/书桌/窗一眼看全"
+    },
+    {
+      "name": "02-medium",
+      "lens": 35.0,
+      "loc": [
+        -0.1,
+        0.6,
+        1.18
+      ],
+      "aim": [
+        -1.4,
+        -1.15,
+        0.58
+      ],
+      "note": "中景：床边（床上戏、对手戏常用机位）"
+    },
+    {
+      "name": "03-closeup",
+      "lens": 45.0,
+      "loc": [
+        0.72,
+        0.8,
+        1.28
+      ],
+      "aim": [
+        1.88,
+        0.12,
+        0.86
+      ],
+      "note": "特写：书桌/笔记本（打字戏、伏案戏）"
+    }
+  ],
+  "renders": [
+    "01-establishing.png",
+    "02-medium.png",
+    "03-closeup.png"
+  ],
+  "blend": "room-hello.blend"
+}

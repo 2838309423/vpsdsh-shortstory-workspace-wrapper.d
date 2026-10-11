@@ -218,7 +218,8 @@
   别擅自 shutdown/reset（会丢客机里未保存的东西）；本次未改动客机任何东西。
 - 客机：Windows 10 22H2 `10.0.19045.2965`，`192.168.122.121`（MAC `52:54:00:5e:86:43`），RDP 3389 开；
   qemu-guest-agent 在（`guest-ping` 通，但版本老：`guest-get-osinfo` 不存在；`guest-exec` 可用）；
-  virtiofs 共享 `\\shared` ⇄ 宿主 `/home/longxia/media-shared`。
+  virtiofs 共享 ⇄ 宿主 `/home/longxia/media-shared`。⚠ **客机里的落点是 `Z:` 盘**（卷标 `shared`）：
+  `\\shared` 这个 UNC 名**解析不了**（2026-10-11 实测 `type \\shared\…` 报"找不到网络路径"）。
 - **看图/接入**：SPICE 只绑宿主回环 `127.0.0.1:5900` 且 `disable-ticketing=on`（**无口令**）⇒ 外部必须打隧道
   （`ssh -N -L 5900:127.0.0.1:5900 longxia@156.238.255.110` + `remote-viewer spice://127.0.0.1:5900`）；
   RDP 同理 `-L 13389:192.168.122.121:3389`。宿主装了 `virt-viewer`/`remote-viewer`，但宿主无 X ⇒ 别指望在服务器上看。
@@ -228,3 +229,29 @@
 - 助手脚本：`bin/win10.sh {status|start|stop|reset|inspect|shot|console|rdp}`（`inspect` = 客机真会话状态）。
 - 未做：域 `Autostart: disable`（改它要 root，本机无 sudo 免密）⇒ **宿主重启后不会自动起**，
   得手动 `bin/win10.sh start`。
+
+## 7 DSH → win10 客机里的 Blender（3D 房间/短剧场所）——2026-10-11 落地
+
+甲方想法：DSH(DeepSeek) 当 agent 写 python，驱动客机里的 Blender 搭「3D 小房间」短剧场所。
+MVP 已跑通，全案在 `docs/方案-dsh驱动win10-blender-3D小房间-261011.md`。长期要记的只有这些：
+
+- **三个角色**：① DSH（宿主 Linux）＝写脚本/发命令/验收；② Blender（客机 win10）＝干活；
+  ③ virtiofs 共享＝唯一数据面。**客机不需要装任何"被驱动端"**（无 SSH/WinRM/agent 客户端）。
+- **控制面 = qemu-guest-agent `guest-exec`**（`bin/win10-exec.sh`）：以 **SYSTEM / session 0** 跑，
+  所以天然无桌面、无 GUI —— 正好是 `blender -b`。客机控制台是 **cp936**，UTF-8 程序要重定向到文件。
+- **数据面 = `/home/longxia/media-shared` ⇄ 客机 `Z:`**（卷标 `shared`，不是 `\\shared`）：
+  送脚本、收 png/blend/log 全走它；宿主直接 `read`/`cp`，无需再传。
+- **Blender 装法**：官方 Windows **便携版 zip**（不是 msi）解到 **`C:\blender\blender.exe`**，
+  当前 **4.5.14 LTS**；免管理员、免注册表、整包可回滚。装包缓存在 `media-shared/_dl/`（带 sha256）。
+- **入口两条**：
+  - `bin/win10-exec.sh [--timeout N] <exe> [args...]`（客机执行器，含 `--kill-last`）
+  - `bin/win10-blender.sh <脚本.py> [--job NAME] [-- 脚本参数]`（job 运行器：送脚本→跑→回读 run.log）
+  - 样板场景：`tools/roomgen/room_hello.py`（4.2×3.6×2.7 m 房间 + 门/窗 + 家具 + 3 机位 + 自检）
+- **一律 `-b --factory-startup --python-exit-code 1`**：脚本抛异常 ⇒ 客机退出码非 0，不混"静默成功"。
+- **渲染器选 Cycles CPU**（不是 EEVEE）：KVM 无 GPU 直通，EEVEE 无头要 GL 上下文，靠不住。
+- ⚠ **坑（都实测过）**：
+  ① guest-exec 的 base64 回传会截断 ⇒ 长任务输出**必须重定向到文件**；
+  ② **宿主侧 Ctrl-C/杀 job 不会停客机里的程序** ⇒ 先 `bin/win10-exec.sh --kill-last`；
+  ③ 刚杀过宿主任务时 qemu-ga 会短暂回 `Guest agent is not responding`，**等十几秒重试即可**；
+  ④ 杀宿主 job ≠ 停渲染，同一 `out/` 目录会被两个 Blender 抢写 ⇒ 换 job 名或等它收尾；
+  ⑤ 客机磁盘 85 GB（装前 C: 剩 55.4 GB / 装后 50.7 GiB），Blender 便携版解压占 **892.8 MB**。
