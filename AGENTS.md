@@ -267,6 +267,26 @@ MVP 已跑通，全案在 `docs/方案-dsh驱动win10-blender-3D小房间-261011
   `out/*/room-*.blend` 双击进 Blender GUI 随手改。**仓是真值源，共享盘是投影**：改完脚本回宿主跑
   `bin/publish-share.sh` 重新发布，别在共享盘里改。
 - **渲染器选 Cycles CPU**（不是 EEVEE）：KVM 无 GPU 直通，EEVEE 无头要 GL 上下文，靠不住。
+- **动画与 glTF（2026-10-11 加）**：`tools/roomgen/room_hello.py --anim N` 让相机沿 3 个机位做 smoothstep
+  平滑穿行、出 `out/frames/f####.png`；`--glb room.glb` 导出 glTF。宿主再用静态 ffmpeg 合成 mp4：
+  `ffmpeg -framerate 12 -i frames/f%04d.png -c:v libx264 -pix_fmt yuv420p room-tour.mp4`。
+  实测 60 帧 @480×270/12spp ≈ **4.6 s/帧 ≈ 5 分钟**。
+- **浏览器 3D 查看器**：`bin/make-viewer.sh <room.glb> <outdir>` 把 glb **base64 内嵌**进
+  `tools/roomgen/web/viewer-template.html` 生成自包含 `viewer-hello.html`（double-click 可用；
+  因为 file:// 下 fetch 本地 glb 会被 CORS 拦掉，所以必须内嵌）；three.js 资产缓存在
+  `media-shared/_dl/three/vendor`（0.170.0，含 GLTFLoader/OrbitControls/BufferGeometryUtils）。
+- ⚠ **GL 的硬事实（2026-10-11 实测，踩了很久）**：
+  ① 客机 **没有 OpenGL 4.3**（QXL/virtio-gpu 无 3D 驱动）⇒ 双击 blender.exe 只会弹
+     "Unsupported Graphics Card Configuration"。破解办法是 **Mesa llvmpipe**：
+     `bin/win10-install-mesa.sh` 把 `opengl32.dll + libgallium_wgl.dll` 放进 `C:\blender\`。
+     ⚠ 必须用 **mingw 版**（msvc 版依赖 VC++ 运行库，而客机 System32 里**没有** msvcp140/vcruntime140
+     ⇒ 静默加载失败）。
+  ② **但在 session 0（guest-exec 起的 SYSTEM 进程）里 GL 永远建不起来**：没有真桌面/显示,
+     `ChoosePixelFormat` 拿不到格式 ⇒ 日志刷 `Mesa: error: ... called without a rendering context`
+     然后 `EXCEPTION_ACCESS_VIOLATION`。⇒ **GL/GUI 只能在甲方桌面会话里试**，宿主侧脚本
+     验不了 GUI；本脚本的 GL"功能验证"因此**必然报失败**，不代表 Mesa 没装好。
+  ③ 装了 Mesa **不影响无头 Cycles**（实测装后 `__SELFTEST__ 7 0` 照过）。
+- **Edge/Chrome 无头截图在 session 0 也起不来**（exit 1002）：同理，别拿它当浏览器查看器的验收手段。
 - ⚠ **坑（都实测过）**：
   ① guest-exec 的 base64 回传会截断 ⇒ 长任务输出**必须重定向到文件**；
   ② **宿主侧 Ctrl-C/杀 job 不会停客机里的程序** ⇒ 先 `bin/win10-exec.sh --kill-last`；
