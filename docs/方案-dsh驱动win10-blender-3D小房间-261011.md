@@ -287,6 +287,62 @@ L0 只是证明管道通；真正用在短剧生产上，必须先有 spec（场
 
 ---
 
+## 10 GUI 闪退的真根因与修法（2026-10-11 晚补，甲方报障「双击 blender.exe 灰窗口一闪就没了」）
+
+**结论：不是没装 Mesa，也不是显卡驱动坏的 —— 是 Mesa 装对了、但驱动挑错了。**
+
+Mesa 26.x 的 Windows WGL **默认驱动是 `d3d12`**。这台客机是 QXL 虚拟显卡，D3D12 只绑得到
+`Microsoft Basic Render Driver`（假 3D 适配器）⇒ 表面上看 GL 版本 4.6、上下文也建了，
+但一用就 `E_INVALIDARG`，Blender 立刻退出：
+
+```
+renderer: D3D12 (Microsoft Basic Render Driver)      ← 修之前
+version: 4.6 (Core Profile) Mesa 26.2.4
+===== BLENDER_EXIT=-2147024809 =====                 ← 0x80070057 = E_INVALIDARG
+```
+
+修法一条命令（安装器第 4 步已自动调它，幂等）：
+
+```bash
+cd /home/longxia/vpsdsh-shortstory-workspace-wrapper.d
+bash bin/win10-force-llvmpipe.sh          # 机器级 + 用户级都设 GALLIUM_DRIVER=llvmpipe
+bash bin/win10-force-llvmpipe.sh --check  # 体检
+```
+
+设完实测（同一台客机、同一个 blender.exe）：
+
+```
+vendor='Mesa' renderer='llvmpipe (LLVM 22.1.8, 256 bits)' version='4.6 (Core Profile) Mesa 26.2.4'
+[mesa] GL 功能测试: MESA_GLTEST=OK engine=BLENDER_EEVEE_NEXT
+```
+
+端到端（走 shell，等于甲方双击）：`explorer.exe "C:\blender\blender.exe"` ⇒
+`blender.exe PID 5800 会话#1 Running 窗口标题 "(Unsaved) - Blender 4.5.14 LTS"`；
+再打开 `room-hello.blend` ⇒ 窗口标题变成
+`room-hello [Z:\helloworld-blender-roomgen.d\out\hello\room-hello.blend]`，房间里 20 多个物件都在。
+截图 + 原始日志摘录：`docs/assets/gui-llvmpipe/`（`01-blender-gui-room-hello.png`、
+`02-doubleclick-via-shell.png`、`00-证据-日志摘录.txt`）。
+
+**顺带补上的能力（这才是能验 GUI 的关键）**：`bin/win10-run-as-user.sh`
+—— 用 `schtasks` 的 `InteractiveToken` 计划任务（**不需要密码**）把任意 `.bat` 塞进
+**甲方自己那个交互桌面会话**里跑。以前 `guest-exec` 只能落在 SYSTEM/session 0（**没有真桌面**），
+所以「双击能不能开 GUI」这件事在宿主侧**根本验不了**，只能靠猜。现在能自动验了，
+命令是 `bash bin/win10-run-as-user.sh --list` / `bash bin/win10-run-as-user.sh <宿主上的.bat> --wait 40`。
+
+**给甲方的两条入口**（客机里）：
+1. 双击 `C:\blender\blender.exe` 或 `Z:\helloworld-blender-roomgen.d\out\hello\room-hello.blend`
+   （环境变量已设，直接能开）；
+2. 兜底：双击 `Z:\helloworld-blender-roomgen.d\scripts\open-room-gui.bat`
+   —— 它自己先把那两个变量设好再开 GUI，不依赖环境变量刷没刷新。
+
+**三条新硬口径**（写脚本必守）：
+- `blender.exe` 是 **console 子系统**程序 ⇒ 双击时那个"灰/黑窗口"是**它的控制台**，不是报错弹窗；
+  一退出就没了 = 看不到任何提示，所以诊断必须靠**重定向到文件**或 `--log-file`。
+- 带引号的命令**别直接塞给** `cmd.exe /c "..."`（引号会被吃掉，`reg query` 直接报"无效语法"）
+  ⇒ 一律写成 `.bat` 再执行（本轮实测踩到）。
+- 计划任务 XML 必须 **UTF-16LE + BOM，且 `encoding="UTF-16"`** 声明一致，否则
+  `schtasks /create /xml` 报 `(1,40)::错误: 无法切换编码`。
+
 ## 附：本次落地涉及的文件（全部绝对路径）
 
 ```

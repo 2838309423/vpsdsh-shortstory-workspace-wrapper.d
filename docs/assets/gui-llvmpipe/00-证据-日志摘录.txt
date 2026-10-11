@@ -1,0 +1,36 @@
+GUI 闪退的真根因与修法 —— 原始证据摘录（2026-10-11 晚，都来自客机实测）
+
+【A】修之前（默认驱动）：在甲方自己的会话（session 1）里跑
+      C:\blender\blender.exe --factory-startup --debug-gpu
+      得到（stdout 原文）：
+        GL: Forcing workaround usage and disabling extensions.
+            OpenGL identification strings
+            vendor: Microsoft Corporation
+            renderer: D3D12 (Microsoft Basic Render Driver)
+            version: 4.6 (Core Profile) Mesa 26.2.4 (git-9a0169f2a7)
+        ===== BLENDER_EXIT=-2147024809 =====
+      -2147024809 = 0x80070057 = E_INVALIDARG。
+      ⇒ 窗口出现不到一秒就没了（"灰窗口闪退"）；因为 blender.exe 是 **console 子系统**程序，
+        双击时开的就是那个控制台窗口，它随进程退出一起消失。
+
+【B】修之后（GALLIUM_DRIVER=llvmpipe + LIBGL_ALWAYS_SOFTWARE=1）：
+  同一条 Blender 进程里读 GL 字符串（EEVEE 渲染后）：
+        GL_STRINGS vendor='Mesa' renderer='llvmpipe (LLVM 22.1.8, 256 bits)' version='4.6 (Core Profile) Mesa 26.2.4 (git-9a0169f2a7)'
+        GLSTRINGS_RC=0
+      EEVEE 功能自测（bin/win10-install-mesa.sh --check 末行）：
+        [mesa] GL 功能测试: MESA_GLTEST=OK engine=BLENDER_EEVEE_NEXT
+
+【C】"双击"路径的端到端验证（不经我的手，走 shell）：
+      在 session 1 里      explorer.exe "C:\blender\blender.exe"
+      ⇒ tasklist 实测：  blender.exe  PID 5800  RDP-Tcp#4  会话#1  818,304 K  Running
+                         窗口标题 "(Unsaved) - Blender 4.5.14 LTS"
+      再 explorer 打开     Z:\helloworld-blender-roomgen.d\out\hello\room-hello.blend
+      ⇒ blender.exe  PID 9204  会话#1  829,204 K  Running
+                         窗口标题 "room-hello [Z:\helloworld-blender-roomgen.d\out\hello\room-hello.blend]"
+      截图见同目录 01-blender-gui-room-hello.png（那台机器 1366x768 的桌面实拍）
+
+【D】为什么以前"验不了"：qemu-guest-agent 起的进程是 SYSTEM / session 0，**没有真桌面**，
+      GL 上下文在那里建不起来（日志刷 "called without a rendering context" 后 ACCESS_VIOLATION）。
+      本轮补了 bin/win10-run-as-user.sh：用 schtasks 的 InteractiveToken 计划任务（**不需要密码**）
+      把命令塞进甲方自己的会话 ⇒ GUI 这类事情终于能自动验。
+      ⚠ 任务 XML 必须 UTF-16LE+BOM 且 encoding 声明写 UTF-16，否则 schtasks 报 "(1,40) 无法切换编码"。

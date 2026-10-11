@@ -38,7 +38,7 @@ cp -f "$ROOT/tools/roomgen/room_hello.py"  "$REPO/scripts/"
 cp -f "$ROOT/tools/roomgen/room_living.py" "$REPO/scripts/" 2>/dev/null || true
 
 # ---------- 2. 宿主侧入口 ----------
-for f in win10-exec.sh win10-blender.sh win10-install-blender.sh win10-install-mesa.sh win10.sh make-viewer.sh; do
+for f in win10-exec.sh win10-blender.sh win10-install-blender.sh win10-install-mesa.sh win10-force-llvmpipe.sh win10-run-as-user.sh win10.sh make-viewer.sh; do
   [ -f "$ROOT/bin/$f" ] && cp -f "$ROOT/bin/$f" "$REPO/bin/"
 done
 chmod 755 "$REPO"/bin/*.sh 2>/dev/null || true
@@ -84,6 +84,32 @@ EOF
 gen_bat hello  room_hello.py  "hello bedroom (4.2 x 3.6 x 2.7 m)"
 [ -f "$REPO/scripts/room_living.py" ] && gen_bat living room_living.py "living room (written by the DSH agent)"
 
+# 客机里"双击开 GUI 看小房间"的启动器（纯 ASCII；自己把软件 OpenGL 的两个变量设上，
+# 所以**即使**环境变量没设/Explorer 没刷新它也照样能开 —— 这是给甲方的一条兜底入口）。
+cat > "$REPO/scripts/open-room-gui.bat" <<'EOF'
+@echo off
+rem Open the sample room in Blender's GUI (software OpenGL forced).
+rem Double-click this file inside the win10 guest. No console flag needed.
+rem Why the two variables: Mesa 26.x defaults to its d3d12 driver, which on this
+rem QXL VM binds to "Microsoft Basic Render Driver" and makes Blender exit at once
+rem (exit code -2147024809 = 0x80070057, i.e. the "grey window flashes" symptom).
+set "GALLIUM_DRIVER=llvmpipe"
+set "LIBGL_ALWAYS_SOFTWARE=1"
+if not exist "C:\blender\blender.exe" (
+  echo [x] C:\blender\blender.exe not found.
+  echo     On the Linux host run:  bash bin/win10-install-blender.sh
+  if not "%ROOMGEN_NOUI%"=="1" pause
+  exit /b 1
+)
+if not exist "%~dp0..\out\hello\room-hello.blend" (
+  echo [x] room-hello.blend not found next to this script.
+  if not "%ROOMGEN_NOUI%"=="1" pause
+  exit /b 1
+)
+echo Starting Blender GUI with software OpenGL ^(llvmpipe^) -- first frame can take ~20 s...
+start "" "C:\blender\blender.exe" "%~dp0..\out\hello\room-hello.blend"
+EOF
+
 # 硬闸门：.bat 里出现任何非 ASCII 字节就中止发布（上面那条坑太贵，不能靠记性）
 if LC_ALL=C grep -lP '[^\x00-\x7F]' "$REPO"/scripts/*.bat >/dev/null 2>&1; then
   echo "[publish-share] ❌ 有 .bat 含非 ASCII 字节，拒绝发布：" >&2
@@ -114,8 +140,15 @@ fi
 # 客机里 Blender 的软件 OpenGL 是否装了（决定"双击 .blend 能不能开 GUI"）
 if [ $GUEST -eq 1 ]; then
   MESA_STATE=$(bash "$HERE/win10-exec.sh" --timeout 60 cmd.exe /c 'if exist C:\blender\opengl32.dll (echo 已装) else (echo 未装)' 2>/dev/null | tr -d '\r' | grep -m1 . || echo 未探测)
+  # 光装 DLL 不够：还得把 GALLIUM_DRIVER=llvmpipe 强制上（否则 Mesa 挑 d3d12 ⇒ 双击秒退）
+  if bash "$HERE/win10-force-llvmpipe.sh" --check >/dev/null 2>&1; then
+    LLVMPIPE_STATE="已强制 llvmpipe"
+  else
+    LLVMPIPE_STATE="**未强制**（双击 C:\\blender\\blender.exe 会闪退 ⇒ 跑 bash bin/win10-force-llvmpipe.sh）"
+  fi
 else
   MESA_STATE="未探测"
+  LLVMPIPE_STATE="未探测"
 fi
 
 # ---------- 5. 方案文档（从本仓拷过来，保持体验仓自足） ----------
@@ -154,11 +187,32 @@ cat > "$REPO/README.md" <<EOF
 双击 \`web\\viewer-hello.html\` —— 一个自包含的 three.js 查看器（3D 数据已内嵌，无需联网/无需服务器）。
 鼠标左键拖 = 转，滚轮 = 缩放；面板里可开"自动旋转 / 剖视（隐掉前墙天花板）/ 线框"。
 
-### C. Blender GUI（需要软件 OpenGL，客机里：$MESA_STATE）
-双击 \`out\\hello\\room-hello.blend\`。⚠ KVM 客机没有 OpenGL 4.3 显卡驱动，
-**必须**先把 Mesa 的软件 OpenGL 装到 \`C:\\blender\\\`（宿主上跑 \`bash bin/win10-install-mesa.sh\`）。
-没装的话会弹 "Unsupported Graphics Card Configuration"。
-**无头渲染不需要它** —— 那是 Cycles CPU 干的活，跟显卡无关。
+### C. Blender GUI（点开就能转视角的那种"最直观感受"）
+客机里软件 OpenGL：Mesa $MESA_STATE　｜　驱动强制：$LLVMPIPE_STATE
+
+两条路，任选一条：
+
+* **推荐：双击 \`scripts\\open-room-gui.bat\`** —— 它自己把软件 OpenGL 的两个环境变量设好再开 Blender GUI，
+  不依赖环境变量有没有刷新生效（兜底最稳）。
+* 或者直接双击 \`out\\hello\\room-hello.blend\`（或 \`C:\\blender\\blender.exe\`）—— 前提是宿主上已经
+  跑过 \`bash bin/win10-install-mesa.sh\`。
+
+⚠ KVM 客机没有 OpenGL 4.3 显卡驱动，**必须先装 Mesa 软件 OpenGL**；而且**光装 DLL 不够**：
+Mesa 26.x 的 Windows WGL 默认挑 **d3d12** 驱动，在这台 QXL 客机上只会绑到
+"Microsoft Basic Render Driver"（假 3D）⇒ Blender 立刻退出（exit code \`-2147024809\` = \`0x80070057\`），
+表现就是**"灰色窗口一闪就没了"**。所以安装器的第 4 步会调
+\`bash bin/win10-force-llvmpipe.sh\`，把 **\`GALLIUM_DRIVER=llvmpipe\`（+ \`LIBGL_ALWAYS_SOFTWARE=1\`）**
+写进**机器级 + 用户级**环境变量（用户级靠 \`setx\` 广播 \`WM_SETTINGCHANGE\`，**不用注销重登**）。
+
+体检两连（宿主上跑）：
+
+\`\`\`bash
+bash bin/win10-force-llvmpipe.sh --check        # 机器级 + 用户级环境变量在不在
+bash bin/win10-install-mesa.sh --check          # opengl32.dll 在不在 + EEVEE 功能自测（末行 MESA_GLTEST=OK）
+\`\`\`
+
+设好后实测：\`renderer='llvmpipe (LLVM 22.1.8, 256 bits)' version='4.6 (Core Profile) Mesa 26.2.4'\`，
+GUI 正常开、能转视角，EEVEE 也能渲。**无头 Cycles 渲染本来就不需要 GL** —— 跟显卡无关。
 
 ### D. 在 Windows 里双击 .bat 重渲（1~3 分钟出图）
 1. 打开 \`Z:\\helloworld-blender-roomgen.d\\scripts\\\`
@@ -175,11 +229,12 @@ cat > "$REPO/README.md" <<EOF
 | \`scripts/room_hello.py\` | 样板卧室：4.2×3.6×2.7 m，门窗 + 家具 + 3 机位；\`--anim N\` 出动画帧、\`--glb\` 出 glTF |
 | \`scripts/room_living.py\` | DSH agent 自己写的小客厅 |
 | \`scripts/run-*.bat\` | 客机里双击即渲（无头 Cycles CPU） |
+| \`scripts/open-room-gui.bat\` | **客机里双击开 Blender GUI** 看小房间（自带软件 OpenGL 兜底） |
 | \`out/hello/\` | 3 张高画质静帧 + \`room-tour.mp4\` + \`room.glb\` + \`contact-sheet.png\` + \`.blend\` + \`scene_report.json\` |
 | \`out/living/\` | agent 版小客厅产物 |
 | \`web/viewer-hello.html\` | 自包含 3D 查看器（glb 内嵌，file:// 双击可用） |
 | \`web/viewer.html\` | 同一查看器，但走 URL 读 glb（需要 http 服务） |
-| \`bin/*.sh\` | 宿主侧入口：执行器 / job 运行器 / Blender 安装器 / **Mesa 软件 GL 安装器** |
+| \`bin/*.sh\` | 宿主侧入口：执行器 / job 运行器 / Blender 安装器 / **Mesa 软件 GL 安装器** / **llvmpipe 强制器** / **run-as-user（往甲方桌面会话里塞命令）** |
 | \`_manifest.txt\` | 全包 md5 + 生成时间 + 仓 HEAD + 客机 Blender 版本 |
 
 ### B. 在 Windows 里打开 .blend 自由玩
@@ -204,9 +259,10 @@ source bin/env.sh && dsh headless "用 tools/roomgen/room_hello.py 当模板，�
 | \`scripts/room_hello.py\` | 样板卧室：4.2×3.6×2.7 m，墙体/门/窗 + 家具 + 3 机位 + 末行自检 |
 | \`scripts/room_living.py\` | **DSH agent 自己写的**小客厅（沙发/茶几/落地灯/电视墙/地毯/边柜） |
 | \`scripts/run-*.bat\` | 客机里双击即渲（无头 Cycles CPU） |
+| \`scripts/open-room-gui.bat\` | **客机里双击开 Blender GUI** 看小房间（自带软件 OpenGL 兜底） |
 | \`out/hello/\` | 样板卧室产物（960×540 PNG ×3 + \`room-hello.blend\` + \`scene_report.json\`） |
 | \`out/living/\` | agent 版小客厅产物（640×360 PNG ×3 + \`room-living.blend\`） |
-| \`bin/*.sh\` | 宿主（Linux）侧入口：客机执行器 / job 运行器 / Blender 安装器（**副本**） |
+| \`bin/*.sh\` | 宿主（Linux）侧入口：客机执行器 / job 运行器 / Blender 安装器 / llvmpipe 强制器 / run-as-user（**副本**） |
 | \`_manifest.txt\` | 本包 md5 清单 + 生成时间 + 来源仓 HEAD + 客机 Blender 版本 |
 
 ## 客机里装 Blender / 软件 OpenGL（宿主上各一条命令，都幂等）

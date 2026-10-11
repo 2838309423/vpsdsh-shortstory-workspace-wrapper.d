@@ -275,17 +275,31 @@ MVP 已跑通，全案在 `docs/方案-dsh驱动win10-blender-3D小房间-261011
   `tools/roomgen/web/viewer-template.html` 生成自包含 `viewer-hello.html`（double-click 可用；
   因为 file:// 下 fetch 本地 glb 会被 CORS 拦掉，所以必须内嵌）；three.js 资产缓存在
   `media-shared/_dl/three/vendor`（0.170.0，含 GLTFLoader/OrbitControls/BufferGeometryUtils）。
-- ⚠ **GL 的硬事实（2026-10-11 实测，踩了很久）**：
+- ⚠ **GL 的硬事实（2026-10-11 实测，踩了很久；当晚已修好，见下条）**：
   ① 客机 **没有 OpenGL 4.3**（QXL/virtio-gpu 无 3D 驱动）⇒ 双击 blender.exe 只会弹
      "Unsupported Graphics Card Configuration"。破解办法是 **Mesa llvmpipe**：
      `bin/win10-install-mesa.sh` 把 `opengl32.dll + libgallium_wgl.dll` 放进 `C:\blender\`。
      ⚠ 必须用 **mingw 版**（msvc 版依赖 VC++ 运行库，而客机 System32 里**没有** msvcp140/vcruntime140
      ⇒ 静默加载失败）。
-  ② **但在 session 0（guest-exec 起的 SYSTEM 进程）里 GL 永远建不起来**：没有真桌面/显示,
-     `ChoosePixelFormat` 拿不到格式 ⇒ 日志刷 `Mesa: error: ... called without a rendering context`
-     然后 `EXCEPTION_ACCESS_VIOLATION`。⇒ **GL/GUI 只能在甲方桌面会话里试**，宿主侧脚本
-     验不了 GUI；本脚本的 GL"功能验证"因此**必然报失败**，不代表 Mesa 没装好。
-  ③ 装了 Mesa **不影响无头 Cycles**（实测装后 `__SELFTEST__ 7 0` 照过）。
+  ② **光放 DLL 不够！Mesa 26.x 的 Windows WGL 默认挑 `d3d12` 驱动**，在 QXL 客机上只绑得到
+     `Microsoft Basic Render Driver`（假 3D）⇒ 表面 GL 4.6、实则用不了，Blender **秒退
+     `-2147024809`（=0x80070057 E_INVALIDARG）**。甲方原话"双击后灰窗口闪退"就是这个
+     （`blender.exe` 是 **console 子系统**程序，那个灰/黑窗口就是它的控制台，进程一退窗口即消失
+     ⇒ **看不到任何提示**，诊断必须重定向文件）。
+     **修法**：`bin/win10-force-llvmpipe.sh` —— 机器级(`setx /M`) + 用户级(`HKCU\Environment`，
+     在用户自己的会话里 `setx`，靠 `WM_SETTINGCHANGE` 就地刷新，**不用注销**)设
+     `GALLIUM_DRIVER=llvmpipe` + `LIBGL_ALWAYS_SOFTWARE=1`。`win10-install-mesa.sh` 第 4 步已自动调。
+     修后实测：`renderer='llvmpipe (LLVM 22.1.8, 256 bits)' version='4.6 (Core Profile) Mesa 26.2.4'`、
+     `MESA_GLTEST=OK engine=BLENDER_EEVEE_NEXT`、GUI 正常开。
+     证据：`docs/assets/gui-llvmpipe/`（截图 + 原始日志摘录）、`docs/方案-…-261011.md` §10。
+  ③ **session 0 里没有真桌面 ⇒ 验不了 GUI**（`ChoosePixelFormat` 拿不到格式，刷
+     `without a rendering context` 后 ACCESS_VIOLATION）。**现在能验了**：
+     `bin/win10-run-as-user.sh [--list] <宿主上的.bat> [--wait N]` 用 schtasks 的
+     `InteractiveToken`（**不需要密码**）把命令塞进甲方自己的会话。
+     ⚠ 任务 XML 必须 **UTF-16LE+BOM 且声明 `encoding="UTF-16"`**，否则 `(1,40) 无法切换编码`；
+     传共享盘内的 .bat 会**就地**跑（保住 `%~dp0`），不在共享盘的才拷进 `Z:\_dsh-asuser\`。
+  ④ 装了 Mesa **不影响无头 Cycles**（实测装后 `__SELFTEST__ 7 0` 照过）；强制 llvmpipe 后
+     EEVEE（GL）在 session 0 也能渲通（`MESA_GLTEST=OK`）。
 - **Edge/Chrome 无头截图在 session 0 也起不来**（exit 1002）：同理，别拿它当浏览器查看器的验收手段。
 - ⚠ **坑（都实测过）**：
   ① guest-exec 的 base64 回传会截断 ⇒ 长任务输出**必须重定向到文件**；
@@ -302,3 +316,8 @@ MVP 已跑通，全案在 `docs/方案-dsh驱动win10-blender-3D小房间-261011
      必须留 `ROOMGEN_NOUI=1` 这类开关跳过 `start`/`pause`（本仓 .bat 已经留了）。
   ⑨ 宿主杀 job 不会清客机进程 ⇒ **同一 job 反复测会攒下僵尸 cmd.exe 并锁住日志文件**
      （报"另一个程序正在使用此文件"）；用 `powershell Get-CimInstance Win32_Process` 列 CommandLine 后精准 stop。
+  ⑩ **带引号的命令别直接塞给 `cmd.exe /c "..."`**：引号会被吃掉 —— 实测
+     `tasklist /FI "IMAGENAME eq x"`、`reg query "HKLM\…\Session Manager\Environment" /v X`
+     分别报"无效参数/选项 - 'eq'"和"无效语法" ⇒ 一律写成 `.bat`/`.ps1` 文件再执行。
+  ⑪ **重启/兜底入口**：客机里双击 `Z:\helloworld-blender-roomgen.d\scripts\open-room-gui.bat`
+     —— 它自己先设好那两个 GL 变量再开 GUI，不依赖环境变量刷没刷新（`pause` 留了 `ROOMGEN_NOUI=1` 开关）。

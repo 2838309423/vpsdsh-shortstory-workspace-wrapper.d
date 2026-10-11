@@ -8,6 +8,12 @@
 #   GUI 能开、能转视角、能按 F12 出图；代价是慢（软件光栅化，靠 CPU）。
 #   ⚠ 无头渲染（`bin/win10-blender.sh`，Cycles CPU）**本来就不需要 GL**，加不加这个都不影响。
 #
+# ⚠⚠ 2026-10-11 晚补的**关键一步**（甲方报"双击 blender.exe 灰窗口一闪就没了"的真根因）：
+#   光把两个 DLL 放过去**不够**。Mesa 26.x 的 Windows WGL **默认挑 d3d12 驱动**，在 QXL 客机上
+#   它只绑得到 `Microsoft Basic Render Driver`（假 3D）⇒ 上下文建一半，Blender 立刻退出
+#   （exit code **-2147024809 = 0x80070057**）。必须再强制 **GALLIUM_DRIVER=llvmpipe**：
+#   `bash bin/win10-force-llvmpipe.sh`（本脚本第 4 步自动调它；幂等，机器级 + 用户级都设）。
+#
 # 用法：
 #   bin/win10-install-mesa.sh              # 下载+解压+装进客机 C:\blender\，并做 EEVEE 功能验证
 #   bin/win10-install-mesa.sh --check      # 只看客机里装没装、GL 能不能用
@@ -66,14 +72,24 @@ except Exception as e:
 PY
 
 gltest() {
-  ex "$TIMEOUT" "$BLENDER_DIR\\blender.exe" -b --factory-startup --python-exit-code 1 \
-     --python 'Z:\_dl\mesa_gltest.py' 2>&1 | grep -a 'MESA_GLTEST=' | tail -1
+  # ⚠ 必须**带着 GALLIUM_DRIVER=llvmpipe 跑**：不强制的话 Mesa 会挑 d3d12 ⇒ 假 GL 上下文 ⇒
+  #   要么 E_INVALIDARG 秒退，要么渲到一半在 GPU_fence_wait 里 ACCESS_VIOLATION（都是实测过的假绿/假红）。
+  #    所以这里走一个纯 ASCII .bat（`set "VAR=…"` 形式，避免 `set VAR=1 && …` 的行尾空格陷阱）。
+  cat > "$SHARE/_dl/mesa_gltest.bat" <<'BAT'
+@echo off
+set "GALLIUM_DRIVER=llvmpipe"
+set "LIBGL_ALWAYS_SOFTWARE=1"
+C:\blender\blender.exe -b --factory-startup --python-exit-code 1 --python Z:\_dl\mesa_gltest.py
+BAT
+  chmod a+r "$SHARE/_dl/mesa_gltest.bat"
+  ex "$TIMEOUT" cmd.exe /c 'Z:\_dl\mesa_gltest.bat' 2>&1 | grep -a 'MESA_GLTEST=' | tail -1
 }
 
 echo "[mesa] 客机 $BLENDER_DIR  ← Mesa $MESA_VERSION（软件 OpenGL / llvmpipe）"
 
 if [ "$MODE" = check ]; then
   echo "[mesa] 客机里的 opengl32.dll: $(ex 60 cmd.exe /c "if exist $BLENDER_DIR\\opengl32.dll (echo 有) else (echo 无)" | tr -d '\r' | grep -m1 .)"
+  echo "[mesa] 驱动强制（GALLIUM_DRIVER）:"; bash "$HERE/win10-force-llvmpipe.sh" --check 2>&1 | sed 's/^/    /'
   echo "[mesa] GL 功能测试: $(gltest)"
   exit 0
 fi
@@ -81,6 +97,7 @@ fi
 if [ "$MODE" = remove ]; then
   for d in "${DLLS[@]}"; do ex 60 cmd.exe /c "if exist $BLENDER_DIR\\$d del /f /q $BLENDER_DIR\\$d"; done
   echo "[mesa] 已撤掉：${DLLS[*]}（GUI 会回到打不开，无头渲染不受影响）"
+  echo "[mesa] 提示：GALLIUM_DRIVER 环境变量留着无害（没有 Mesa 的 opengl32.dll 时没人读它）；要清用 bin/win10-force-llvmpipe.sh --unset"
   exit 0
 fi
 
@@ -106,7 +123,10 @@ for d in "${DLLS[@]}"; do CMDS="$CMDS copy /y Z:\\_dl\\mesa\\extracted-$MESA_FLA
 OUT=$(ex "$TIMEOUT" cmd.exe /c "$CMDS echo MESA_COPIED")
 echo "$OUT" | tr -d '\r' | grep -q MESA_COPIED && echo "[mesa] 已拷入客机 $BLENDER_DIR" || { echo "[mesa] ⚠ 拷贝未确认" >&2; }
 
-# ---------- 3. 功能验证 ----------
+# ---------- 3. 强制走 llvmpipe（**少了这步 GUI 必闪退**，见文件头） ----------
+bash "$HERE/win10-force-llvmpipe.sh" || echo "[mesa] ⚠ 强制 llvmpipe 没完全成功（多半是甲方没登录桌面 ⇒ 只设了机器级；下次登录生效）" >&2
+
+# ---------- 4. 功能验证 ----------
 R=$(gltest)
 echo "[mesa] GL 功能测试: $R"
 case "$R" in
