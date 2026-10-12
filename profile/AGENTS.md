@@ -79,21 +79,27 @@
   ⇒ 浏览器文本服务：**入口 URL 带令牌**，用 `bash bin/web.sh url` 取（每次启动换新令牌）；
   实测样例 `http://100.85.190.17:19387/?token=…`（打开即 303 换 cookie，之后 200 出 SPA）。
   ⚠ 令牌**每次重启都换** ⇒ 手机里存的旧链接一律 401 `dsh web authentication required`（甲方 2026-10-12 踩的就是这条）；
+  **现在这条已被下面的入口鉴权门接住**：门发现 401 就自动补当前令牌，域名那条书签永久有效。
   但 cookie 签名密钥是持久的（`~/.dsh/.credentials.yaml`）⇒ 认证过的设备重开一次新令牌链接即可，之后开干净 URL 也行。
-  会话 cookie 寿命已从默认 30 天调到 10 年（`profile/cordis.patch.yml` 的 `connection.cookieMaxAgeDays`，**下次重启生效**）。
+  会话 cookie 寿命已从默认 30 天调到 10 年（`profile/cordis.patch.yml` 的 `connection.cookieMaxAgeDays`，
+  实测 2026-10-12 已生效：`set-cookie` 回 `Max-Age=315360000`，无需为它重启）。
   **端口只开在 Tailscale 网卡 + 回环**：`dsh web --host` 只接受 `127.0.0.1`/`0.0.0.0`，
   而它自带无 TLS/无认证 ⇒ 由 `bin/web-gate.py` 在 `100.85.190.17:19387` 转发到 `127.0.0.1:19387`；
   **公网 IP 上零监听**（`ss -ltn | grep 19387` 只有这两条）。
 - **入口鉴权门**（`bin/web-gate.py`，2026-10-12 落地，取代纯转发的 `bin/ts-proxy.py`）：
-  **书签统一是 `http://100.85.190.17:19387/`**（干净 URL，不带令牌）；令牌轮换由门自动补，重启也不怕。
-  三档写在 `state/gate.conf`，`bash bin/web.sh gate {off|tailnet|password}` 切换（**不用重启**，门每条连接现读）：
-  `off` 纯直通（回滚档）｜`tailnet` 网内直通（**当前生效**，甲方方案①）｜
+  **当前档 = `split`（甲方 2026-10-12 晚口径：方案①+② 同时生效）——按 Host 分流，两个书签并存**：
+  **域名** `http://ser542085963120.tailcd1620.ts.net:19387/` ⇒ **令牌档**（方案①，免口令，门自动补当前令牌）；
+  **IP** `http://100.85.190.17:19387/` ⇒ **口令档**（方案②，先出登录页）；陌生 Host / 缺 Host 一律按口令档（失败安全）。
+  四档写在 `state/gate.conf`，`bash bin/web.sh gate {off|tailnet|password|split}` 切换（**不用重启**，门每条连接现读）：
+  `off` 纯直通（回滚档）｜`tailnet` 网内直通（方案①）｜
   `password` 网内 + 登录页，只认 **longxia / shortstory 的真 Linux 口令**（longxia 走 `sudo -S -k`，
-  shortstory 走 `su` + PTY；**root 拒绝，连 PAM 都不碰**），失败 5 次/5 分钟 限速（甲方方案②）。
+  shortstory 走 `su` + PTY；**root 拒绝，连 PAM 都不碰**），失败 5 次/5 分钟 限速（方案②）｜
+  `split` = 域名走①、IP 走②。`gate.conf` 可加 `token_host = <名/IP>` 把额外 Host 也划进令牌档。
   ⚠ 这是**身份门不是权限边界**：web 里一切仍以 `longxia` 跑，用 shortstory 登录不会换 uid。
-  ⚠ **锁死退路**：password 档下若登录页不收口令，从 Windows SSH 进来跑
-  `cd ~/vpsdsh-shortstory-workspace-wrapper.d && bash bin/web.sh gate tailnet`（或删 `state/gate.conf`）。
-  自测：`python3 bin/selftest-web-gate.py` ⇒ 末行 `__SELFTEST__ 25 0`；单据 `docs/方案-入口鉴权门-261012.md`。
+  ⚠ **锁死退路**：登录页不收口令时，从 Windows SSH 进来跑
+  `cd ~/vpsdsh-shortstory-workspace-wrapper.d && bash bin/web.sh gate split`（或 `tailnet`，或删 `state/gate.conf`）；
+  split 档下即使口令路不通，**域名那条照样能进 GUI**，不必非得 SSH。
+  自测：`python3 bin/selftest-web-gate.py` ⇒ 末行 `__SELFTEST__ 38 0`；单据 `docs/方案-入口鉴权门-261012.md`。
 - 一次性问答（不开浏览器）：`dsh headless "你的问题"`（带 `--json` 出机器可读事件）。
 - 权限档：`DSH_PERMISSION_MODE=danger-full-access`（**只能 export，写进 `.env` 会被启动器拒绝**）；
   本机是甲方独占 VPS ⇒ 不额外收窄沙箱。

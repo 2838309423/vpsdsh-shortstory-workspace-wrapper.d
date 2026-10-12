@@ -29,11 +29,16 @@ fi
 export DSH_WEB_PUBLIC
 
 # `/api` 浏览器信任栅栏额外接受的 authority（经代理进来时 Host 头带的是公网侧 authority）
-DSH_WEB_TRUSTED="${DSH_WEB_PUBLIC}:${DSH_WEB_PORT}"
-if [ "$DSH_WEB_PUBLIC" != "127.0.0.1" ]; then
-  TS_DNS="$(tailscale status --json 2>/dev/null \
+# 本机 Tailscale MagicDNS 名（split 档的"令牌档"书签用它；也进 /api 信任栅栏）
+if [ -z "${DSH_WEB_DNS:-}" ] && [ "$DSH_WEB_PUBLIC" != "127.0.0.1" ]; then
+  DSH_WEB_DNS="$(tailscale status --json 2>/dev/null \
     | python3 -c 'import json,sys;print(json.load(sys.stdin).get("Self",{}).get("DNSName","").rstrip("."))' 2>/dev/null)"
-  [ -n "$TS_DNS" ] && DSH_WEB_TRUSTED="$DSH_WEB_TRUSTED $TS_DNS:$DSH_WEB_PORT"
+fi
+export DSH_WEB_DNS
+
+DSH_WEB_TRUSTED="${DSH_WEB_PUBLIC}:${DSH_WEB_PORT}"
+if [ -n "${DSH_WEB_DNS:-}" ]; then
+  DSH_WEB_TRUSTED="$DSH_WEB_TRUSTED $DSH_WEB_DNS:$DSH_WEB_PORT"
 fi
 export DSH_WEB_TRUSTED
 

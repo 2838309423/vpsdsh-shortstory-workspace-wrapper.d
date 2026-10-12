@@ -3,6 +3,7 @@ state/
 logs/
 *.pid
 *.log
+__pycache__/
 
 # —— 机密（绝不入库）——
 .env

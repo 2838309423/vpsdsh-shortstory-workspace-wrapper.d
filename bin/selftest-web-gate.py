@@ -11,6 +11,10 @@
   * password 模式：未登录 ⇒ 303 /login；登录页 200；root/陌生用户名直接拒；
     桩口令 False ⇒ /login?e=1；连错 5 次 ⇒ 429；桩口令 True ⇒ 发 cookie ⇒ 之后能进；
     伪造 cookie ⇒ 退回 /login；/api 无 cookie ⇒ 401。
+  * split 模式（域名走令牌档 / IP 走口令档）：域名 Host ⇒ 401⇒303 到令牌、/login 直接回首页；
+    IP Host ⇒ 303 /login、登录页 200、/api 401；陌生主机名与 IPv6 字面量 ⇒ 一律口令档（失败安全）；
+    任意 *.ts.net ⇒ 令牌档；gate.conf 的 token_host 追加项（含 IP）能覆盖默认分流；
+    IP 入口口令对 ⇒ 发 cookie ⇒ 带 cookie 再走令牌跳转；伪造 cookie ⇒ 退回 /login。
   * 真口令校验（不打桩，故意用错口令）：longxia / shortstory 必须判否，且都不落日志。
 """
 from __future__ import annotations
@@ -148,9 +152,12 @@ async def run() -> None:
     stub_port, gate_port = free_port(), free_port()
 
     def set_mode(mode: str) -> None:
+        set_conf(f"mode = {mode}\n")
+
+    def set_conf(text: str) -> None:
         with open(os.path.join(tmp, "gate.conf"), "w", encoding="utf-8") as fh:
-            fh.write(f"mode = {mode}\n")
-        gate._CACHE.pop("mode", None)  # noqa: SLF001
+            fh.write(text)
+        gate._CACHE.pop("conf", None)  # noqa: SLF001
 
     def set_token(token: str | None) -> None:
         with open(os.path.join(tmp, "url.txt"), "w", encoding="utf-8") as fh:
@@ -264,6 +271,65 @@ async def run() -> None:
     check("password：换密钥后旧 cookie 失效 ⇒ /login",
           code == 303 and hdrs.get("location") == "/login", f"code={code} loc={hdrs.get('location')}")
     gate._CACHE.pop("secret", None)  # noqa: SLF001
+    gate.verify_linux_password = real_verify  # type: ignore[assignment]
+
+    # ---- 模式 split：按 Host 分流（Tailscale 域名 ⇒ 令牌档；IP / 陌生名 ⇒ 口令档） ----
+    DOMAIN_HOST = "ser542085963120.tailcd1620.ts.net:19387"
+    IP_HOST = "100.85.190.17:19387"
+    gate.FAILS.clear()
+    set_conf("mode = split\n")
+
+    code, hdrs, _ = await call(gate_port, build("GET", "/", {"host": DOMAIN_HOST}))
+    check("split：域名 Host ⇒ 令牌档（401⇒303 到当前令牌，不出口令页）",
+          code == 303 and f"token={STUB_TOKEN}" in hdrs.get("location", ""),
+          f"code={code} loc={hdrs.get('location')}")
+    code, hdrs, _ = await call(gate_port, build("GET", "/login", {"host": DOMAIN_HOST}))
+    check("split：域名 Host 打 /login ⇒ 303 回首页（这条路本来就不要口令）",
+          code == 303 and hdrs.get("location") == "/", f"code={code} loc={hdrs.get('location')}")
+    code, hdrs, _ = await call(gate_port, build("GET", "/", {"host": IP_HOST}))
+    check("split：IP Host ⇒ 口令档（303 /login）",
+          code == 303 and hdrs.get("location") == "/login", f"code={code} loc={hdrs.get('location')}")
+    code, _, body = await call(gate_port, build("GET", "/login", {"host": IP_HOST}))
+    check("split：IP Host 的登录页 200 且有表单", code == 200 and b"<form" in body, f"code={code}")
+    code, _, _ = await call(gate_port, build("GET", "/api/x", {"host": IP_HOST}))
+    check("split：IP Host 无 cookie 打 /api ⇒ 401", code == 401, f"code={code}")
+    code, hdrs, _ = await call(gate_port, build("GET", "/", {"host": "usavps.internal:19387"}))
+    check("split：陌生主机名 ⇒ 口令档（失败安全方向）",
+          code == 303 and hdrs.get("location") == "/login", f"code={code} loc={hdrs.get('location')}")
+    code, hdrs, _ = await call(gate_port, build("GET", "/", {"host": "[fd7a:115c:a1e0::8931:be12]:19387"}))
+    check("split：IPv6 字面量 Host ⇒ 口令档",
+          code == 303 and hdrs.get("location") == "/login", f"code={code} loc={hdrs.get('location')}")
+    code, hdrs, _ = await call(gate_port, build("GET", "/", {"host": "other-node.lax.ts.net:19387"}))
+    check("split：任意 *.ts.net 名 ⇒ 令牌档",
+          code == 303 and f"token={STUB_TOKEN}" in hdrs.get("location", ""),
+          f"code={code} loc={hdrs.get('location')}")
+
+    set_conf("mode = split\ntoken_host = dsh.internal, 10.0.0.5\n")
+    code, hdrs, _ = await call(gate_port, build("GET", "/", {"host": "dsh.internal:19387"}))
+    check("split：gate.conf 追加的 token_host 主机名 ⇒ 令牌档",
+          code == 303 and f"token={STUB_TOKEN}" in hdrs.get("location", ""), f"code={code}")
+    code, hdrs, _ = await call(gate_port, build("GET", "/", {"host": "10.0.0.5:19387"}))
+    check("split：被显式列为 token_host 的 IP ⇒ 令牌档（配置能覆盖默认分流）",
+          code == 303 and f"token={STUB_TOKEN}" in hdrs.get("location", ""), f"code={code}")
+
+    set_conf("mode = split\n")
+    calls.clear()
+    gate.verify_linux_password = fake_verify  # type: ignore[assignment]
+    form = b"username=shortstory&password=right-password"
+    code, hdrs, _ = await call(gate_port, build("POST", "/login", {"host": IP_HOST}, body=form))
+    split_cookie = hdrs.get("set-cookie", "").split(";")[0]
+    check("split：IP 入口口令对 ⇒ 303 + 发门 cookie",
+          code == 303 and split_cookie.startswith(gate.GATE_COOKIE + "=")
+          and calls == [("shortstory", "right-password")],
+          f"code={code} calls={calls}")
+    code, hdrs, _ = await call(gate_port, build("GET", "/", {"host": IP_HOST, "cookie": split_cookie}))
+    check("split：IP 入口带门 cookie ⇒ 303 到令牌（再换 DSH cookie）",
+          code == 303 and f"token={STUB_TOKEN}" in hdrs.get("location", ""),
+          f"code={code} loc={hdrs.get('location')}")
+    forged = gate.GATE_COOKIE + "=v1.eyJ1IjoibG9uZ3hpYSIsImV4cCI6NDEwMjQ0NDgwMH0.Zm9yZ2Vk"
+    code, hdrs, _ = await call(gate_port, build("GET", "/", {"host": IP_HOST, "cookie": forged}))
+    check("split：IP 入口伪造 cookie ⇒ 退回 /login",
+          code == 303 and hdrs.get("location") == "/login", f"code={code} loc={hdrs.get('location')}")
     gate.verify_linux_password = real_verify  # type: ignore[assignment]
 
     gate_srv.close()

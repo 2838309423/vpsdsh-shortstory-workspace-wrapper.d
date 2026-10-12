@@ -5,7 +5,7 @@
 自带的入口令牌**每次启动都换** ⇒ 手机里存的书签过一阵就 401。这是 `bin/ts-proxy.py` 的升级版：
 同一个监听、同一套直通语义，但多认几种"进门方式"。
 
-三种模式（写在 `state/gate.conf` 的 `mode = ...`，**每条连接现读**，改完即生效、不用重启）：
+四种模式（写在 `state/gate.conf` 的 `mode = ...`，**每条连接现读**，改完即生效、不用重启）：
 
   off       纯 TCP 转发，行为与本来的 ts-proxy.py 完全一致（回滚档）
   tailnet   方案①：**Tailscale 网内即通行**。浏览器开干净 URL `http://100.85.190.17:19387/`，
@@ -15,6 +15,15 @@
               longxia    : `sudo -S -k -u root /bin/true`（PAM 校验发起者口令；实测错口令 ⇒ EXIT=1）
               shortstory : `su shortstory -c /bin/true`（起了 PTY 喂口令；实测错口令 ⇒ Authentication failure）
             通过后发一枚 HMAC 签名的 `dsh-gate` cookie（默认 365 天），之后才轮到 DSH 自己的认证。
+  split     **方案① + 方案② 同时生效**（2026-10-12 甲方口径）：按请求的 `Host` 分流 ——
+              Host 是 Tailscale 域名（MagicDNS 名，`*.ts.net`，可再用 `token_host =` 追加）
+                ⇒ 走 **令牌档**（等同 tailnet，方案①）：不出口令登录页，DSH 401 就自动补当前令牌跳转。
+              Host 是 **IP 字面量**（`100.85.190.17`、IPv6 tailnet 地址…）
+                ⇒ 走 **口令档**（等同 password，方案②）：先出登录页，认 longxia / shortstory 的真 Linux 口令。
+              其它任何 Host（陌生主机名、没有 Host 头）⇒ **一律口令档**（失败安全方向）。
+            两个书签同时可用：
+              http://ser542085963120.tailcd1620.ts.net:19387/   令牌档（免口令）
+              http://100.85.190.17:19387/                       口令档（要 Linux 口令）
 
 ⚠ 这是**身份门**，不是权限边界：web 里跑的一切仍然以服务账号 `longxia` 身份执行，
   用 `shortstory` 登录并不会让 agent 变成 shortstory。要真分权限得另起一个 DSH 实例换 uid 跑。
@@ -33,6 +42,7 @@ import base64
 import functools
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -47,8 +57,12 @@ MAX_FORM = 8 * 1024
 GATE_COOKIE = "dsh-gate"
 ALLOWED_USERS = ("longxia", "shortstory")  # root 永不入列
 MODE_OFF, MODE_TAILNET, MODE_PASSWORD = "off", "tailnet", "password"
-MODES = (MODE_OFF, MODE_TAILNET, MODE_PASSWORD)
+MODE_SPLIT = "split"
+MODES = (MODE_OFF, MODE_TAILNET, MODE_PASSWORD, MODE_SPLIT)
 DEFAULT_MODE = MODE_TAILNET
+# split 档：Host 落在这些形态上算"令牌档"，其余（含一切 IP 字面量）算"口令档"。
+# MagicDNS 名一律以 .ts.net 结尾 ⇒ 后缀规则就够；非 ts.net 的自定义名用 gate.conf 的 token_host 补。
+TS_DOMAIN_SUFFIX = ".ts.net"
 COOKIE_TTL_SECONDS = 365 * 24 * 3600
 FAIL_LIMIT = 5
 FAIL_WINDOW_SECONDS = 300
@@ -75,9 +89,12 @@ def _cached(key: str, producer, ttl: float):
     return value
 
 
-def read_mode() -> str:
-    def produce() -> str:
+def read_conf() -> dict[str, list[str]]:
+    """`state/gate.conf` 全量配置：`key = value`，值可用逗号分隔成多个，`#` 起注释。
+    键与值一律小写（mode / token_host 都是大小写不敏感的名字）。"""
+    def produce() -> dict[str, list[str]]:
         path = os.path.join(STATE_DIR, "gate.conf")
+        conf: dict[str, list[str]] = {}
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 for line in fh:
@@ -85,18 +102,70 @@ def read_mode() -> str:
                     if not line or "=" not in line:
                         continue
                     key, _, value = line.partition("=")
-                    if key.strip() == "mode":
-                        value = value.strip().lower()
-                        if value in MODES:
-                            return value
-                        log(f"gate.conf 里的 mode={value!r} 不认识，退回 {DEFAULT_MODE}")
+                    key = key.strip().lower()
+                    for item in value.split(","):
+                        item = item.strip().lower()
+                        if item:
+                            conf.setdefault(key, []).append(item)
         except FileNotFoundError:
             pass
         except OSError as exc:
-            log(f"读 gate.conf 失败（{exc}），退回 {DEFAULT_MODE}")
-        return DEFAULT_MODE
+            log(f"读 gate.conf 失败（{exc}），按缺省 {DEFAULT_MODE} 走")
+        return conf
 
-    return _cached("mode", produce, CONFIG_CACHE_SECONDS)  # type: ignore[return-value]
+    return _cached("conf", produce, CONFIG_CACHE_SECONDS)  # type: ignore[return-value]
+
+
+def read_mode() -> str:
+    conf = read_conf()
+    for value in conf.get("mode", []):
+        if value in MODES:
+            return value
+        log(f"gate.conf 里的 mode={value!r} 不认识，退回 {DEFAULT_MODE}")
+    return DEFAULT_MODE
+
+
+# --------------------------------------------------------------------------- 按 Host 分流（split 档）
+
+def host_only(value: str | None) -> str:
+    """从 Host 头取主机名（去端口、去 IPv6 方括号、转小写）。"""
+    if not value:
+        return ""
+    value = value.strip().lower()
+    if value.startswith("["):  # [fd7a:…]:19387
+        end = value.find("]")
+        return value[1:end] if end != -1 else value
+    if value.count(":") == 1:  # host:port（域名 / IPv4）
+        return value.split(":", 1)[0]
+    return value
+
+
+def is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def is_token_host(host: str) -> bool:
+    """这个 Host 走令牌档（方案①）吗？"""
+    if not host:
+        return False
+    for pattern in read_conf().get("token_host", []):
+        if pattern.startswith(("*", ".")):  # `*.x` / `.x` 都按后缀匹配
+            if host.endswith(pattern.lstrip("*")):
+                return True
+        elif host == pattern:
+            return True
+    return host.endswith(TS_DOMAIN_SUFFIX)
+
+
+def effective_mode(mode: str, host: str) -> str:
+    """split 档在每条连接上落地成 tailnet（令牌档）或 password（口令档）。"""
+    if mode != MODE_SPLIT:
+        return mode
+    return MODE_TAILNET if is_token_host(host) else MODE_PASSWORD
 
 
 def current_token() -> str | None:
@@ -385,12 +454,13 @@ LOGIN_PAGE = """<!doctype html>
 </style></head><body>
 <form method="post" action="/login">
   <h1>DSH 入口</h1>
-  <p class="sub">Tailscale 网内 · 系统账户登录</p>
+  <p class="sub">IP 入口（方案②）· 系统账户登录</p>
   __ERROR__
   <input name="username" placeholder="用户名" autocomplete="username" autocapitalize="none" autofocus>
   <input name="password" type="password" placeholder="口令" autocomplete="current-password">
   <button type="submit">登录</button>
-  <p class="hint">只允许 longxia / shortstory；root 不可登录。口令即本机 Linux 账户口令。</p>
+  <p class="hint">只允许 longxia / shortstory；root 不可登录。口令即本机 Linux 账户口令。<br>
+  用 IP 打开就要这一步；改用 Tailscale 域名（…ts.net）打开则免口令、走令牌档。</p>
 </form></body></html>
 """
 
@@ -471,7 +541,7 @@ async def _document(head: bytes, reader: asyncio.StreamReader, writer: asyncio.S
             log("上游 401 但 state/url.txt 与 web.log 都没有令牌 ⇒ 503（先跑 bin/web.sh start）")
             _respond(writer, 503, b"no launch token on server; run bin/web.sh start\n")
         else:
-            log(f"上游 401 ⇒ 303 /?token=…（{request.path}，自动换 cookie）")
+            log(f"上游 401 ⇒ 303 /?token=…（{request.path}，host={request.header('host') or '?'}，自动换 cookie）")
             _respond(writer, 303, headers={"location": f"/?token={token}"})
         writer.close()
         return
@@ -496,22 +566,28 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         await _forward_raw(head, reader, writer, target)
         return
 
-    mode = read_mode()
+    host = host_only(request.header("host"))
+    mode = effective_mode(read_mode(), host)
     if mode == MODE_OFF:
         await _forward_raw(head, reader, writer, target)
         return
+    # 令牌档（off 已排除：tailnet / split 里的域名）不需要门 cookie，口令档（password / split 里的 IP）需要。
+    password_required = mode == MODE_PASSWORD
 
     path = request.path
     if path == "/logout":
-        log(f"{ip} 退出登录")
+        log(f"{ip} 退出登录（host={host or '?'}）")
         _respond(writer, 303, headers={
             "set-cookie": f"{GATE_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax",
-            "location": "/login"})
+            "location": "/login" if password_required else "/"})
         writer.close()
         return
 
     if path == "/login":
-        if request.method == "POST":
+        if not password_required:
+            # 令牌档入口（Tailscale 域名）本来就不需要口令 ⇒ 别停在登录页
+            _respond(writer, 303, headers={"location": "/"})
+        elif request.method == "POST":
             await _login(reader, writer, request, ip)
         else:
             _respond(writer, 200, login_page("" if not request.query.get("e") else "用户名或口令不对"),
@@ -520,11 +596,12 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         return
 
     user = cookie_user(request.header("cookie"))
-    if mode == MODE_PASSWORD and user is None:
+    if password_required and user is None:
         if path.startswith("/api"):
             _respond(writer, 401, b"dsh-gate: login required\n",
                      {"content-type": "text/plain; charset=utf-8"})
         else:
+            log(f"{ip} 未登录访问 {path}（host={host or '?'}）⇒ 303 /login")
             _respond(writer, 303, headers={"location": "/login"})
         writer.close()
         return
@@ -590,6 +667,11 @@ async def _serve(listen_host: str, listen_port: int, target: tuple[str, int]) ->
         log(f"监听 {listen_host}:{listen_port} 失败：{exc}")
         raise SystemExit(3) from exc
     log(f"listening {listen_host}:{listen_port} -> {target[0]}:{target[1]} mode={read_mode()}")
+    mode = read_mode()
+    if mode == MODE_SPLIT:
+        extra = read_conf().get("token_host", [])
+        log(f"split 分流：Host 以 {TS_DOMAIN_SUFFIX} 结尾"
+            f"{' 或命中 ' + ','.join(extra) if extra else ''} ⇒ 令牌档；其余（含一切 IP）⇒ 口令档")
     async with server:
         await server.serve_forever()
 
