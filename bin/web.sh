@@ -103,8 +103,12 @@ case "${1:-status}" in
   stop)    do_stop ;;
   restart) do_stop; sleep 1; do_start ;;
   ensure)
-    has "$S_WEB" || start_web >/dev/null
+    # 看门狗顺手把 state/url.txt 校准到**当前**令牌（2026-10-12 补的坑）：
+    # `@reboot` 走的就是 ensure ⇒ 只拉会话不刷新的话，url.txt 里会留着上一代的死令牌，
+    # 之后照着它发给甲方的链接一律 401。refresh_url 只读日志尾，幂等、便宜。
+    has "$S_WEB" || { start_web >/dev/null; sleep 3; }
     has "$S_PROXY" || start_proxy >/dev/null
+    refresh_url >/dev/null 2>&1 || true
     if has "$S_WEB" && has "$S_PROXY"; then echo "[web] ok"; else echo "[web] FAIL"; exit 1; fi
     ;;
   status)  do_status ;;

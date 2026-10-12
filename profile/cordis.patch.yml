@@ -21,3 +21,16 @@
   config:
     thresholdRatio: 0.35
     retainRatio: 0.06
+# 浏览器会话 cookie 的寿命：默认 30 天。手机放 30 天不动，cookie 一过期，存的书签（老令牌）
+# 就只剩 401，又得重新要链接。调到 10 年 ⇒ 每台设备**认证一次就长期有效**，之后直接开干净 URL
+# `http://100.85.190.17:19387/`（不带令牌）。
+# ⚠ 用户 patch 层按 id **整条替换** config（2026-10-12 实测：只写 cookieMaxAgeDays 会把 trustedHosts
+#   冲掉 ⇒ 手机侧 /api 信任栅栏失守、SPA 打不开）⇒ 必须把 trustedHosts 原样抄回来。
+# ⚠ 生效要重启 web（`bash bin/web.sh restart`），重启会换一次入口令牌。
+- id: connection
+  name: "@deepseek-ai/dsh-client-connection"
+  inject:
+    - webRuntime
+  config:
+    trustedHosts: !!js ctx.webRuntime.trustedHosts
+    cookieMaxAgeDays: 3650

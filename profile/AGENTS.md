@@ -78,6 +78,9 @@
   `cd ~/vpsdsh-shortstory-workspace-wrapper.d && bash bin/web.sh start`
   ⇒ 浏览器文本服务：**入口 URL 带令牌**，用 `bash bin/web.sh url` 取（每次启动换新令牌）；
   实测样例 `http://100.85.190.17:19387/?token=…`（打开即 303 换 cookie，之后 200 出 SPA）。
+  ⚠ 令牌**每次重启都换** ⇒ 手机里存的旧链接一律 401 `dsh web authentication required`（甲方 2026-10-12 踩的就是这条）；
+  但 cookie 签名密钥是持久的（`~/.dsh/.credentials.yaml`）⇒ 认证过的设备重开一次新令牌链接即可，之后开干净 URL 也行。
+  会话 cookie 寿命已从默认 30 天调到 10 年（`profile/cordis.patch.yml` 的 `connection.cookieMaxAgeDays`，**下次重启生效**）。
   **端口只开在 Tailscale 网卡 + 回环**：`dsh web --host` 只接受 `127.0.0.1`/`0.0.0.0`，
   而它自带无 TLS/无认证 ⇒ 由 `bin/ts-proxy.py` 在 `100.85.190.17:19387` 转发到 `127.0.0.1:19387`；
   **公网 IP 上零监听**（`ss -ltn | grep 19387` 只有这两条）。
