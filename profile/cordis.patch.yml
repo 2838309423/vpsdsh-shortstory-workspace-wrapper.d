@@ -34,3 +34,23 @@
   config:
     trustedHosts: !!js ctx.webRuntime.trustedHosts
     cookieMaxAgeDays: 3650
+# 第二个模型路由：智谱 GLM（甲方 2026-10-12 要求：把 GLM 放到「输入框下方模型选择器」的最顶部第一个）。
+#   - 路由 key `zai-coding-cn` 就是 pi-ai 自带目录里的智谱国际/国内档（baseURL=https://open.bigmodel.cn/api/coding/paas/v4，
+#     OpenAI 兼容）——与甲方 claude 侧走的是**同一把智谱 key**（~/.bashrc 的 ANTHROPIC_API_KEY，经 8199 微代理转发到同域）。
+#   - 密钥不进本仓：refs.GLM_API_KEY 由人工写入 $DSH_HOME/.credentials.yaml（600），本文件只写 apiKeyEnv 名字。
+#   - `models` 只列 glm-5.3-flash（不写就整个智谱目录 7 个模型都进选择器，flash 会排在中间）；
+#     要加 glm-5.3 / glm-5.3-highspeed 就往下补 id（条目字段从 pi-ai 目录同 id 继承，不必重复写 endpoint）。
+#   - ⚠ 选择器**分组顺序**是客户端硬编码的（dsh-client-ui-model-selection/lib/client.js 的
+#     orderModelProviders()，deepseek-account/official 固定 0/1）⇒ 光配这里，GLM 只会排在 DeepSeek 下面；
+#     「排第一」由 `bash bin/patch-model-order.sh apply` 打客户端补丁实现（npm 升级后要重跑）。
+#   - ⚠ 本段最早是用 **设置页/设置 RPC** 写活的（`settings/mutate`，立即生效、不重启）；改成手写后要重启 web
+#     （`bash bin/web.sh restart`）或再走一次设置页才生效。
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      zai-coding-cn:
+        apiKeyEnv: GLM_API_KEY
+        displayName: 智谱 GLM
+        models:
+          - id: glm-5.3-flash

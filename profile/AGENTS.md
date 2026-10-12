@@ -74,6 +74,13 @@
 - **文本服务（模型）**：服务器上的 DeepSeek 官方 API —— provider 路由 `deepseek-official`，模型 `deepseek-flash`
   （DeepSeek-V4.1-Flash，1M ctx / 393216 输出，支持 text+image）。密钥在 `~/.dsh/.credentials.yaml` 的
   `refs.DEEPSEEK_API_KEY`（600），或起 DSH 前 `export DEEPSEEK_API_KEY=…`；**密钥永不入仓、永不打印**。
+- **第二条模型路由 = 智谱 GLM（2026-10-12 甲方要求「放选择器最顶部第一个」）**：
+  provider 路由 `zai-coding-cn`（pi-ai 目录档，`https://open.bigmodel.cn/api/coding/paas/v4`，OpenAI 兼容），
+  模型 `glm-5.3-flash`（1M ctx），密钥 `refs.GLM_API_KEY`（与甲方 claude 侧同一把智谱 key，取自 `~/.bashrc`）；
+  接线写在 `profile/cordis.patch.yml` 的 `llm-pi-ai` 段。⚠ 选择器**分组顺序是客户端硬编码**的
+  （`dsh-client-ui-model-selection/lib/client.js` 的 `orderModelProviders()`，DeepSeek 两档固定 0/1）
+  ⇒ 「GLM 排第一」靠 `bash bin/patch-model-order.sh apply` 打客户端补丁；
+  **`npm i`/升级 DSH 会覆盖 client.js**，升级后重跑 apply（`check` 会报 pristine）；单据 `docs/落地记录-GLM模型路由与选择器置顶-261012.md`。
 - 启动（工作区根 = 启动时 cwd，profile 里 `sandbox-policy.workspaceRoot = process.cwd()`）：
   `cd ~/vpsdsh-shortstory-workspace-wrapper.d && bash bin/web.sh start`
   ⇒ 浏览器文本服务：**入口 URL 带令牌**，用 `bash bin/web.sh url` 取（每次启动换新令牌）；
