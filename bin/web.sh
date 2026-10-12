@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# DSH 浏览器文本服务（小说写作入口）：start|stop|restart|ensure|status|logs|url
+# DSH 浏览器文本服务（小说写作入口）：start|stop|restart|ensure|status|logs|url|gate
 #
 #   bash bin/web.sh start     起服务（两个 tmux 会话：dsh-web + dsh-proxy；socket dsh-vps 与既有两线隔离）
-#   bash bin/web.sh status    进程 + 端口 + 入口 URL + 日志尾
+#   bash bin/web.sh status    进程 + 端口 + 入口 URL + 门模式 + 日志尾
 #   bash bin/web.sh ensure    幂等：缺哪个起哪个（cron 看门狗用它）
+#   bash bin/web.sh gate ...  入口鉴权门模式：off | tailnet（网内直通）| password（网内 + Linux 口令）
 #   bash bin/web.sh logs [N]  日志尾 N 行（缺省 60）
 #
-# 为什么是两个会话：dsh web 只肯绑 127.0.0.1/0.0.0.0 且自带无认证 ⇒ 由 bin/ts-proxy.py 在
-# Tailscale 网卡上听同一端口转发进来（公网 IP 上零监听）。见 bin/env.sh 顶部三条口径。
+# 为什么是两个会话：dsh web 只肯绑 127.0.0.1/0.0.0.0 且自带无认证 ⇒ 由 bin/web-gate.py 在
+# Tailscale 网卡上听同一端口转发进来（公网 IP 上零监听）。见 bin/env.sh 顶部三条口径、
+# bin/web-gate.py 顶部三种进门方式。
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=env.sh
@@ -84,6 +86,7 @@ do_status() {
     fi
   done
   echo "[web] 入口（Tailscale 内网）：$(do_url)"
+  echo "[web] 入口门模式：$(gate_mode)"
   if [ -s "$LOG" ]; then echo '[web] web.log 尾：'; tail -n 5 "$LOG" | sed 's/^/       /'; fi
   if [ -s "$PLOG" ]; then echo '[web] proxy.log 尾：'; tail -n 3 "$PLOG" | sed 's/^/       /'; fi
 }
@@ -96,6 +99,54 @@ do_logs() {
   local n="${1:-60}"
   [ -f "$LOG" ] && { echo "--- $LOG"; tail -n "$n" "$LOG"; }
   [ -f "$PLOG" ] && { echo "--- $PLOG"; tail -n "$((n / 3 + 3))" "$PLOG"; }
+}
+
+# 入口鉴权门（bin/web-gate.py）的模式：off | tailnet | password。
+# 门**每条连接现读** state/gate.conf ⇒ 切模式不用重启（2 秒内自动跟上）。
+GATE_CONF="$ROOT/state/gate.conf"
+
+gate_mode() {
+  [ -f "$GATE_CONF" ] || { echo "tailnet（缺省，无 gate.conf）"; return; }
+  local m
+  m="$(grep -E '^[[:space:]]*mode[[:space:]]*=' "$GATE_CONF" | tail -1 | cut -d= -f2- | tr -d ' ')"
+  case "$m" in
+    off|tailnet|password) echo "$m" ;;
+    "")  echo "tailnet（缺省）" ;;
+    *)   echo "$m（不认识，门会退回 tailnet）" ;;
+  esac
+}
+
+do_gate_status() {
+  local m; m="$(gate_mode)"
+  echo "[web] 入口门模式：$m"
+  case "$m" in
+    password)
+      echo "[web] 书签（Tailscale 网内，打开先出登录页，只认 longxia / shortstory）：http://$DSH_WEB_PUBLIC:$DSH_WEB_PORT/"
+      echo "[web] 口令就是本机 Linux 账户口令：longxia 走 sudo/PAM，shortstory 走 su；root 不可登录。"
+      ;;
+    off)
+      echo "[web] 书签（纯直通，与老 ts-proxy 一致）：$(do_url)"
+      ;;
+    *)
+      echo "[web] 书签（Tailscale 网内，直接进；令牌由门自动补，重启也不怕）：http://$DSH_WEB_PUBLIC:$DSH_WEB_PORT/"
+      ;;
+  esac
+}
+
+do_gate() {
+  local sub="${1:-status}"
+  mkdir -p "$ROOT/state"
+  case "$sub" in
+    off|tailnet|password)
+      umask 077
+      printf '# 入口鉴权门模式：off（纯直通）| tailnet（Tailscale 网内直通）| password（网内 + Linux 口令登录）\nmode = %s\n' "$sub" > "$GATE_CONF"
+      chmod 600 "$GATE_CONF"
+      echo "[web] 门模式已写 $GATE_CONF ⇒ $sub（运行中的门 2 秒内自动跟上，不用重启）"
+      do_gate_status
+      ;;
+    status) do_gate_status ;;
+    *) echo "用法: $0 gate {off|tailnet|password|status}" >&2; exit 2 ;;
+  esac
 }
 
 case "${1:-status}" in
@@ -114,6 +165,7 @@ case "${1:-status}" in
   status)  do_status ;;
   url)     do_url ;;
   token)   refresh_url ;;
+  gate)    do_gate "${2:-status}" ;;
   logs)    do_logs "${2:-60}" ;;
-  *) echo "用法: $0 {start|stop|restart|ensure|status|url|token|logs [N]}" >&2; exit 2 ;;
+  *) echo "用法: $0 {start|stop|restart|ensure|status|url|token|gate {off|tailnet|password|status}|logs [N]}" >&2; exit 2 ;;
 esac
