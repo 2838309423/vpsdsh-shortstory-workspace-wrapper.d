@@ -1,0 +1,52 @@
+=== diag 2026-10-13T11:46:16Z ===
+pids: xz= tar= aptget= dpkg= blender=
+--- install dir ---
+--- 'blender' file type ---
+/home/longxia/toolchain/blender-4.5.14-linux-x64/blender: cannot open `/home/longxia/toolchain/blender-4.5.14-linux-x64/blender' (No such file or directory)
+
+--- ~/bin/blender ---
+(none)
+
+--- du ---
+--- ffmpeg dir ---
+GPLv3.txt
+ffmpeg
+ffprobe
+manpages
+model
+
+=== bootstrap 2026-10-13T11:46:16Z ===
+[bootstrap] apt: skipped (root=0, --no-apt=0)
+[bootstrap] using cached tarball: /home/longxia/media-shared/_dl/blender-4.5.14-linux-x64.tar.xz
+[bootstrap] tarball: /home/longxia/media-shared/_dl/blender-4.5.14-linux-x64.tar.xz (378045212 bytes)
+[bootstrap] sha256 OK: 9ba871ff2ecd36526b77432745980b7e6664ecd0c7ca11c48849073dcfe06da3
+[bootstrap] extracting to /home/longxia/toolchain (xz, single-threaded; ~1-3 min)
+[bootstrap] missing system libs:
+    	libSM.so.6 => not found
+    	libICE.so.6 => not found
+[bootstrap] extra-libs: trying apt-get download (libsm6 libice6 libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libgomp1)
+[bootstrap] extra-libs: unpacked 9 deb(s) into /home/longxia/toolchain/extralibs
+[bootstrap] version OK: /home/longxia/toolchain/blender-4.5.14-linux-x64/blender: error while loading shared libraries: libSM.so.6: cannot open shared object file: No such file or directory
+[bootstrap] WARN: still missing: 	libSM.so.6 => not found 	libICE.so.6 => not found
+[bootstrap] launcher: /home/longxia/bin/blender -> /home/longxia/toolchain/blender-4.5.14-linux-x64/blender (wrapper; LD_LIBRARY_PATH=/home/longxia/toolchain/extralibs)
+[bootstrap] __BOOTSTRAP__ ok=1 skipped=0 path=/home/longxia/toolchain/blender-4.5.14-linux-x64 prefix=/home/longxia/toolchain missing_libs=2
+
+=== selftest 2026-10-13T11:46:51Z ===
+=== selftest @ ser542085963120 5.15.0-198-generic 2026-10-13T11:46:51Z ===
+  OK   blender launcher on PATH: /home/longxia/bin/blender
+  OK   version matches 4.5.14 (/home/longxia/toolchain/blender-4.5.14-linux-x64/blender: error while loading shared libraries: libSM.so.6: cannot open shared object file: No such file or directory)
+  OK   real launcher sane (163613240 B, not the bootstrap wrapper)
+  FAIL missing shared libs
+       	libSM.so.6 => not found
+       	libICE.so.6 => not found
+  FAIL blender python ok
+  OK   ffmpeg on PATH (ffmpeg version 7.0.2-static https://john)
+  ..   system disk: /dev/vda1        49G   20G   29G  41% /
+  ..   no /root/autodl-tmp (not an AutoDL container?)
+  ..   GPU: not visible (expected in 无卡模式 / CPU-only box)
+  ..   libcuda.so.1: absent (must be present for Cycles CUDA)
+  FAIL Cycles CPU render (rc=127, log: /tmp/_selftest/smoke.log)
+       /home/longxia/toolchain/blender-4.5.14-linux-x64/blender: error while loading shared libraries: libSM.so.6: cannot open shared object file: No such file or directory
+__SELFTEST__ 7 3
+
+=== done 2026-10-13T11:46:51Z ===
