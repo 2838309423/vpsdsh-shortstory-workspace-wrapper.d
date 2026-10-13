@@ -112,6 +112,26 @@
   本机是甲方独占 VPS ⇒ 不额外收窄沙箱。
 - 服务自愈：用户 crontab 有 `@reboot` + `每 2 分钟` 的 `bin/web.sh ensure`（`bin/install-cron.sh verify` 查看）。
 
+## 本实例的 DSH 插件（2026-10-13 立条；插件根 = `~/dsh.d/`）
+
+- **插件根本机统一为 `/home/longxia/dsh.d/`**（2026-10-12 从 `$HOME/<包名>` 搬进来的，**没有单独单据**）：
+  `dsh.d/dsh-statusline.d`（底部状态栏）、`dsh.d/dsh-copy-path.d`（复制绝对路径）、`dsh.d/dsh-auth.d`（入口门）、
+  `dsh.d/dsh-session-rotation.d`（会话轮转，**2026-10-13 装**）。
+  ⚠ **搬仓时漏改了 profile 软链** ⇒ `profiles/vps/node_modules/@local/*` 两条链子悬空，
+  DSH 启动只打一行 `dsh: skipping profile bundle "@local/…"` 然后**静默少装**（不报错、不退出）——
+  2026-10-13 隔离冷启取证后由 `bin/apply-profile.sh` 修好（现在链子指向 `~/dsh.d/<包名>`）。
+  **以后搬插件仓，必须同时 `bash bin/apply-profile.sh` 重建链子**；判断链子好坏：
+  `ls -l ~/.dsh/profiles/vps/node_modules/@local/` 不能有 `DANGLING`。
+- **注册面就两处**：`profile/package.json` 的 `dependencies`（`link:`，只是登记）+ `dsh.profile.bundles`（真正挂载）；
+  bundle 自带的 `cordis.patch.yml` 由 DSH 自己 insert ⇒ **用户 patch 层不用再写 insert**（那是"不重启就点"的老做法）。
+  `bash bin/apply-profile.sh` 幂等落地这两处 + 三条软链；改完 `bash bin/web.sh restart`。
+- **新插件 `@local/dsh-session-rotation.d` = 会话轮转**（水位→fork 新会话→归档旧会话，原为甲方桌面端开发）。
+  本机当前 **`mode=observe`（只报不改）**：只读 L2 token 读数 + transcript 字节数，按阈值往
+  `state/rotation/plugin.log` 与 `state/rotation/audit/dsh-rotation.jsonl` 写具名记录，**不建会话/不归档/不移文件**。
+  路径面由 `bin/env.sh` 的 `DSH_SESSION_ROTATION_*` 改写成 Linux 路径（插件缺省全是 Windows 路径）。
+  两条**Windows-only 腿**本机没有 ⇒ 真跑链条前必须先解决：①REAP 的 `dsh-session-reap.py` 路径在插件里写死成
+  Windows 盘符；②跨会话接续靠 Windows 侧 headless 驱动（Chrome/CDP + schtasks）。单据 `docs/落地记录-轮转插件-usavps-261013.md`。
+
 ## git 托管约定：gitee（2026-10-03 甲方交代；本机实测可推）
 
 - 远端一律 **SSH**：`git@gitee.com:gushiteng/<仓>.git`（本机 `ssh -T git@gitee.com` 实测认证为 `gushiteng`）。

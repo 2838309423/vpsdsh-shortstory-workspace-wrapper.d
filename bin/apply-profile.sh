@@ -7,7 +7,9 @@
 #
 # 落地的东西：
 #   1) $DSH_HOME/profiles/vps/            ← package.json（插件/束注册表）+ cordis.patch.yml（模型路由）
-#   2) $DSH_HOME/profiles/vps/node_modules/@local/dsh-statusline.d ← 软链到本地插件仓
+#   2) $DSH_HOME/profiles/vps/node_modules/@local/* ← 软链到本地插件仓（插件根 = $HOME/dsh.d/，
+#      **2026-10-12 起插件仓统一收到该目录**；旧路径 $HOME/<包名> 已不存在，链子悬空会让 DSH
+#      启动时只打一行 `dsh: skipping profile bundle …` 然后**静默少装插件**）
 #      （bundle 的实际解析走 Node 的 node_modules 查找；package.json 里的 `link:` 只是登记）
 #   3) $DSH_HOME/AGENTS.md                ← profile/AGENTS.md（服务器侧全局长期记忆；已存在则不覆盖）
 #   4) $DSH_HOME/.credentials.yaml        ← 只在缺失时创建空骨架（**密钥由人填，脚本不写密钥**）
@@ -54,7 +56,11 @@ fi
 #    resolve.paths），package.json 里的 `link:` 依赖只是登记 —— 少了这条软链，启动会报
 #    `cannot resolve profile bundle "@local/dsh-statusline.d"`。插件仓不进 profiles 目录，
 #    所以要在这里保证链子在。
-#    插件源的更新：cd "$HOME/dsh-statusline.d" && git pull（改 client.js 有 HMR；改 index.js 见仓内 HANDOFF）。
+#    ⚠ 插件仓根 = `$PLUGIN_ROOT`（= `$HOME/dsh.d`）。2026-10-12 三个插件仓从 `$HOME/<包名>`
+#      搬进 `$HOME/dsh.d/` 但当时没跟着改这里 ⇒ 两条链子悬空，此后任何一次重启都会
+#      **静默**丢掉 statusline + copy-path（2026-10-13 实测隔离冷启取证后修）。
+#    插件源的更新：cd "$PLUGIN_ROOT/<包名>" && git pull（改 client.js 有 HMR；改 index.js 见仓内 HANDOFF）。
+PLUGIN_ROOT="${DSH_PLUGIN_ROOT:-$HOME/dsh.d}"
 link_local_bundle() {
   local pkg="$1" target="$2"
   if [ ! -d "$target" ]; then
@@ -70,8 +76,9 @@ link_local_bundle() {
     echo "[apply] 建链：node_modules/$pkg -> $target"
   fi
 }
-link_local_bundle "@local/dsh-statusline.d" "$HOME/dsh-statusline.d"
-link_local_bundle "@local/dsh-copy-path.d" "$HOME/dsh-copy-path.d"
+link_local_bundle "@local/dsh-statusline.d" "$PLUGIN_ROOT/dsh-statusline.d"
+link_local_bundle "@local/dsh-copy-path.d" "$PLUGIN_ROOT/dsh-copy-path.d"
+link_local_bundle "@local/dsh-session-rotation.d" "$PLUGIN_ROOT/dsh-session-rotation.d"
 
 # 4) 用户 patch 层：仓库权威副本覆盖（先备份）
 [ -f "$PDIR/cordis.patch.yml" ] && cp -f "$PDIR/cordis.patch.yml" "$PDIR/cordis.patch.yml.bak-$(date +%s)"

@@ -2,8 +2,9 @@
   "name": "dsh-profile-vps",
   "private": true,
   "dependencies": {
-    "@local/dsh-statusline.d": "link:/home/longxia/dsh-statusline.d",
-    "@local/dsh-copy-path.d": "link:/home/longxia/dsh-copy-path.d"
+    "@local/dsh-statusline.d": "link:/home/longxia/dsh.d/dsh-statusline.d",
+    "@local/dsh-copy-path.d": "link:/home/longxia/dsh.d/dsh-copy-path.d",
+    "@local/dsh-session-rotation.d": "link:/home/longxia/dsh.d/dsh-session-rotation.d"
   },
   "dsh": {
     "profile": {
@@ -11,7 +12,8 @@
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
         "@local/dsh-statusline.d",
-        "@local/dsh-copy-path.d"
+        "@local/dsh-copy-path.d",
+        "@local/dsh-session-rotation.d"
       ]
     }
   }
