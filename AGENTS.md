@@ -321,3 +321,19 @@ MVP 已跑通，全案在 `docs/方案-dsh驱动win10-blender-3D小房间-261011
      分别报"无效参数/选项 - 'eq'"和"无效语法" ⇒ 一律写成 `.bat`/`.ps1` 文件再执行。
   ⑪ **重启/兜底入口**：客机里双击 `Z:\helloworld-blender-roomgen.d\scripts\open-room-gui.bat`
      —— 它自己先设好那两个 GL 变量再开 GUI，不依赖环境变量刷没刷新（`pause` 留了 `ROOMGEN_NOUI=1` 开关）。
+
+## 8 渲染件已分到独立仓：blender-usavps-prepare-and-gpuserver-render.d（甲方 2026-10-13 定名）
+
+- **仓**：`git@gitee.com:gushiteng/blender-usavps-prepare-and-gpuserver-render.d.git`（**私有**）；
+  **本机** `/home/longxia/blender-usavps-prepare-and-gpuserver-render.d`。
+- **里面是什么**：两机分工出片套件 —— usavps 出逻辑/脚本/验收，GPU 服务器（当前 AutoDL）跑终渲。
+  `tools/autodl/`（bootstrap / selftest / smoke_cpu / render_job / run-job / push-payload）、
+  `docs/施工手册-AutoDL系统盘准备与镜像固化-261013.md`、`docs/接续提示词-AutoDL系统盘准备-261013.md`、`jobs/<片名>/`。
+- **本仓（wrapper）不再是渲染件所在地**：只留 `docs/指针-Blender渲染件迁至独立仓-261013.md`。
+- **同步纪律**（照做，别再问）：开工先 `git -C <新仓> pull --ff-only`；收工/每完成一个阶段
+  `git add -A && git commit && git push origin master`；推完自证 = `git status -sb` 无待推 ＋
+  `git rev-parse HEAD` == `git ls-remote origin refs/heads/master | cut -f1`。
+  实例里的 `/root/vibe-render/` 是**部署副本**（改了仓里的脚本必须重跑 `tools/autodl/push-payload.sh`）；
+  产物（`jobs/**/frames|out`、`*.mp4`）**不进仓**；Windows 侧副本只是镜像，改动以 usavps 上的仓为准（单向 scp）。
+- **实测状态（2026-10-13）**：环境件已在 usavps 上预验证 `__SELFTEST__ 8 0`（Blender 4.5.14 headless +
+  Cycles CPU 320×180/8spp 0.22 s + ffmpeg 7.0.2）；新仓首推 `1bd234b`，本仓指针提交 `2e83e87`。
