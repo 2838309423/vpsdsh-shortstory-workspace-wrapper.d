@@ -138,6 +138,9 @@
 - 身份：`user.name=gushiteng`、`user.email=bosancao@163.com`。
 - **DSH 侧各仓该 commit 就 commit、该 push 就 push**（只有 claude 团队的沙盒仓才「只 commit 不 push」）；
   推完对账：`git status -sb` 无待推 + `git ls-remote` HEAD ＝ 本地 HEAD。
+- **渲染件仓另有程序闸门**（2026-10-13 落地，`blender-usavps-prepare-and-gpuserver-render.d`）：
+  开工 `bash bin/preflight.sh`、收工 `bash bin/land.sh -m "…"`、新 clone 先 `bash bin/gates.sh install`；
+  `.githooks/pre-push` 在非快进/脏树/外来写者租约时拒推；说明书见该仓 `docs/同步纪律与闸门-261013.md`。
 
 ## 大尺寸日志：先蒸馏再读（甲方 2026-10-04 立规，硬性）
 
