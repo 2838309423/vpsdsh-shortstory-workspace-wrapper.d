@@ -328,7 +328,8 @@ MVP 已跑通，全案在 `docs/方案-dsh驱动win10-blender-3D小房间-261011
   **本机** `/home/longxia/blender-usavps-prepare-and-gpuserver-render.d`。
 - **里面是什么**：两机分工出片套件 —— usavps 出逻辑/脚本/验收，GPU 服务器（当前 AutoDL）跑终渲。
   `tools/autodl/`（bootstrap / selftest / smoke_cpu / render_job / run-job / push-payload）、
-  `docs/施工手册-AutoDL系统盘准备与镜像固化-261013.md`、`docs/接续提示词-AutoDL系统盘准备-261013.md`、`jobs/<片名>/`。
+  `docs/施工手册-AutoDL系统盘准备与镜像固化-261013.md`、`handoff.d/接续提示词-AutoDL系统盘准备-261013.md`
+  （**2026-10-14 起该仓接续件统一放 `handoff.d/`**，历史三件已由 `docs/` 迁入）、`jobs/<片名>/`。
 - **本仓（wrapper）不再是渲染件所在地**：只留 `docs/指针-Blender渲染件迁至独立仓-261013.md`。
 - **同步纪律**（照做，别再问）：开工先 `git -C <新仓> pull --ff-only`；收工/每完成一个阶段
   `git add -A && git commit && git push origin master`；推完自证 = `git status -sb` 无待推 ＋
